@@ -15,7 +15,16 @@ st.set_page_config(
 )
 
 BASE_DIR = Path(__file__).resolve().parent
-EXCEL_PATH = BASE_DIR / "Datos" / "Datos final marley.xlsx"
+LOCAL_EXCEL_PATHS = [
+    BASE_DIR / "Datos final marley.xlsx",
+    BASE_DIR / "Datos" / "Datos final marley.xlsx",
+]
+REMOTE_EXCEL_URL = (
+    "https://raw.githubusercontent.com/"
+    "juandavdidtejedormedina-rgb/Marley/"
+    "4b965708640420750075a41a3d079816c91a3d36/"
+    "Datos%20final%20marley.xlsx"
+)
 
 BRAND_COLORS = {
     "hero": "#4C4678",
@@ -410,15 +419,15 @@ def ensure_expected_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_wiga_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name=sheet_name)
+def load_wiga_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
+    df = pd.read_excel(source, sheet_name=sheet_name)
     df = standardize_columns(df)
     df = ensure_expected_columns(df)
     return df
 
 
-def load_ecowitt_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
-    raw = pd.read_excel(path, sheet_name=sheet_name, header=None)
+def load_ecowitt_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
+    raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
     raw = raw.iloc[:, :4].copy()
     raw.columns = [
         "FechaHora",
@@ -438,18 +447,24 @@ def load_ecowitt_sheet(path: Path, sheet_name: str) -> pd.DataFrame:
     return raw[["Fecha", "Hora", "Humedad Relativa (%)", "Radiación PAR (µmol m-2 s-1)", "Temperatura (°C)"]]
 
 
+def resolve_excel_source() -> str | Path:
+    for candidate in LOCAL_EXCEL_PATHS:
+        if candidate.exists():
+            return candidate
+    return REMOTE_EXCEL_URL
+
+
 @st.cache_data
 def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    if not EXCEL_PATH.exists():
-        raise FileNotFoundError(f"No se encontró el archivo: {EXCEL_PATH}")
+    excel_source = resolve_excel_source()
 
     source_frames: dict[str, pd.DataFrame] = {}
 
     for sheet_name, source_name in SHEETS.items():
         if source_name == "WIGA":
-            df = load_wiga_sheet(EXCEL_PATH, sheet_name)
+            df = load_wiga_sheet(excel_source, sheet_name)
         else:
-            df = load_ecowitt_sheet(EXCEL_PATH, sheet_name)
+            df = load_ecowitt_sheet(excel_source, sheet_name)
         df["FechaHora"] = pd.to_datetime(
             df["Fecha"].astype(str) + " " + df["Hora"].astype(str),
             errors="coerce",
