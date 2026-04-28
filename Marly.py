@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 import html
 import unicodedata
@@ -5,14 +6,6 @@ import unicodedata
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
-
-st.set_page_config(
-    page_title="Dashboard Marly",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_EXCEL_PATHS = [
@@ -25,6 +18,11 @@ REMOTE_EXCEL_URL = (
     "4b965708640420750075a41a3d079816c91a3d36/"
     "Datos%20final%20marley.xlsx"
 )
+SENSOR_NAMES = ("WIGA", "ECOWITT")
+TIME_BUCKET = "30min"
+SERIES_END_OFFSET = pd.Timedelta(hours=23, minutes=30)
+AXIS_END_OFFSET = pd.Timedelta(hours=23, minutes=59)
+DateRange = tuple[date, date]
 
 BRAND_COLORS = {
     "hero": "#4C4678",
@@ -81,6 +79,15 @@ CANONICAL_COLUMNS = {
     "radiacion par (umol m-2 s-1)": "Radiación PAR (µmol m-2 s-1)",
     "radiacion par umol m-2 s-1": "Radiación PAR (µmol m-2 s-1)",
 }
+
+
+def configure_page() -> None:
+    st.set_page_config(
+        page_title="Dashboard Marly",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
 
 
 def inject_styles() -> None:
@@ -427,6 +434,7 @@ def load_wiga_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
 
 
 def load_ecowitt_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
+    # ECOWITT arrives without a stable header row, so we normalize it manually.
     raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
     raw = raw.iloc[:, :4].copy()
     raw.columns = [
@@ -454,7 +462,7 @@ def resolve_excel_source() -> str | Path:
     return REMOTE_EXCEL_URL
 
 
-@st.cache_data
+@st.cache_data(show_spinner="Cargando archivo de datos...")
 def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     excel_source = resolve_excel_source()
 
@@ -481,7 +489,8 @@ def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     for frame in source_frames.values():
         merged = frame if merged is None else merged.merge(frame, on="FechaHora", how="outer")
 
-    assert merged is not None
+    if merged is None:
+        raise ValueError("No fue posible construir la tabla consolidada de sensores.")
     merged = merged.sort_values("FechaHora").reset_index(drop=True)
 
     return merged, source_frames
@@ -510,7 +519,18 @@ def format_number(value: float | int, decimals: int = 1) -> str:
     return f"{value:,.{decimals}f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-def date_filter(df: pd.DataFrame) -> pd.DataFrame:
+def build_full_time_index(selected_range: DateRange) -> pd.DatetimeIndex:
+    start_date, end_date = selected_range
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date)
+    return pd.date_range(
+        start=start_ts,
+        end=end_ts + SERIES_END_OFFSET,
+        freq=TIME_BUCKET,
+    )
+
+
+def date_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, DateRange, date, date]:
     min_date = df["FechaHora"].min().date()
     max_date = df["FechaHora"].max().date()
 
@@ -525,7 +545,7 @@ def date_filter(df: pd.DataFrame) -> pd.DataFrame:
     return filtered, (start_date, end_date), min_date, max_date
 
 
-def render_day_navigation(min_date, max_date) -> None:
+def render_day_navigation(min_date: date, max_date: date) -> None:
     current_day = st.session_state["selected_day"]
 
     col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1.3])
@@ -565,66 +585,6 @@ def render_day_navigation(min_date, max_date) -> None:
             st.rerun()
 
 
-def build_summary_cards(df: pd.DataFrame, selected_range: tuple) -> str:
-    start_date, end_date = selected_range
-    range_label = (
-        start_date.strftime("%Y-%m-%d")
-        if start_date == end_date
-        else f"{start_date.strftime('%Y-%m-%d')} a {end_date.strftime('%Y-%m-%d')}"
-    )
-
-    cards = [
-        {
-            "label": "Primer registro",
-            "chip": "Inicio",
-            "value": df["FechaHora"].min().strftime("%H:%M"),
-            "unit": "",
-            "footer": df["FechaHora"].min().strftime("%Y-%m-%d"),
-            "accent": "#8077AE",
-            "soft": "rgba(128, 119, 174, 0.18)",
-        },
-        {
-            "label": "Ultimo registro",
-            "chip": "Fin",
-            "value": df["FechaHora"].max().strftime("%H:%M"),
-            "unit": "",
-            "footer": df["FechaHora"].max().strftime("%Y-%m-%d"),
-            "accent": "#D39A58",
-            "soft": "rgba(211, 154, 88, 0.18)",
-        },
-        {
-            "label": "Cobertura de datos",
-            "chip": "Fuentes",
-            "value": "2",
-            "unit": "equipos",
-            "footer": "WIGA y ECOWITT activos en la comparacion",
-            "accent": "#8CBD63",
-            "soft": "rgba(140, 189, 99, 0.18)",
-        },
-    ]
-
-    html_cards = []
-    for card in cards:
-        unit_html = f'<span class="summary-card-unit">{html.escape(card["unit"])}</span>' if card["unit"] else ""
-        html_cards.append(
-            f"""
-            <div class="summary-card" style="--summary-accent: {card['accent']}; --summary-accent-soft: {card['soft']};">
-                <div class="summary-card-header">
-                    <span class="summary-card-label">{html.escape(card['label'])}</span>
-                    <span class="summary-card-chip">{html.escape(card['chip'])}</span>
-                </div>
-                <div class="summary-card-value">
-                    <span class="summary-card-number">{html.escape(card['value'])}</span>
-                    {unit_html}
-                </div>
-                <div class="summary-card-footer">{html.escape(card['footer'])}</div>
-            </div>
-            """
-        )
-
-    return f'<div class="summary-grid">{"".join(html_cards)}</div>'
-
-
 def get_time_axis_config(df: pd.DataFrame) -> dict:
     min_time = df["FechaHora"].min()
     max_time = df["FechaHora"].max()
@@ -659,37 +619,20 @@ def get_time_axis_config(df: pd.DataFrame) -> dict:
 def build_hourly_series(
     df: pd.DataFrame,
     column_name: str,
-    selected_range: tuple,
+    selected_range: DateRange,
 ) -> pd.DataFrame:
     source_df = df[["FechaHora", column_name]].dropna(subset=[column_name]).copy()
     if source_df.empty:
         return source_df
 
-    source_df["FechaHora"] = source_df["FechaHora"].dt.floor("30min")
+    source_df["FechaHora"] = source_df["FechaHora"].dt.floor(TIME_BUCKET)
     source_df = source_df.groupby("FechaHora", as_index=False)[column_name].mean()
-
-    start_date, end_date = selected_range
-    start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date)
-
-    if start_date == end_date:
-        full_index = pd.date_range(
-            start=start_ts,
-            end=start_ts + pd.Timedelta(hours=23, minutes=30),
-            freq="30min",
-        )
-    else:
-        full_index = pd.date_range(
-            start=start_ts,
-            end=end_ts + pd.Timedelta(hours=23, minutes=30),
-            freq="30min",
-        )
-
+    full_index = build_full_time_index(selected_range)
     source_df = source_df.set_index("FechaHora").reindex(full_index).rename_axis("FechaHora").reset_index()
     return source_df
 
-
-def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: tuple) -> pd.DataFrame:
+def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: DateRange) -> pd.DataFrame:
+    # This is the shared comparison table used by both charts and metrics.
     wiga_col = f"{variable} - WIGA"
     ecowitt_col = f"{variable} - ECOWITT"
 
@@ -726,9 +669,13 @@ def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: tup
     return comparison
 
 
+def get_available_sources(comparison: pd.DataFrame) -> list[str]:
+    return [source_name for source_name in SENSOR_NAMES if comparison[source_name].notna().any()]
+
+
 def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     series = []
-    for source_name in ["WIGA", "ECOWITT"]:
+    for source_name in SENSOR_NAMES:
         column_name = f"{variable} - {source_name}"
         if column_name in df.columns:
             clean = pd.to_numeric(df[column_name], errors="coerce").dropna()
@@ -781,30 +728,22 @@ def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     }
 
 
-def make_chart(df: pd.DataFrame, variable: str, selected_range: tuple) -> go.Figure:
+def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure:
     config = VARIABLES[variable]
     fig = go.Figure()
-    time_axis = get_time_axis_config(df)
-    y_axis = get_y_axis_config(df, variable)
+    time_axis = get_time_axis_config(comparison)
+    y_axis = get_y_axis_config(comparison.rename(columns={name: f"{variable} - {name}" for name in SENSOR_NAMES}), variable)
     start_date, end_date = selected_range
-    comparison = build_hourly_comparison(df, variable, selected_range)
 
-    for source_name in ["WIGA", "ECOWITT"]:
-        column_name = f"{variable} - {source_name}"
-        source_df = build_hourly_series(df, column_name, selected_range)
-        if source_df.empty:
+    for source_name in SENSOR_NAMES:
+        source_df = comparison[["FechaHora", source_name, "DiffValueLabel", "DiffPctLabel"]].copy()
+        if source_df[source_name].dropna().empty:
             continue
-
-        source_df = source_df.merge(
-            comparison[["FechaHora", "DiffValueLabel", "DiffPctLabel"]],
-            on="FechaHora",
-            how="left",
-        )
 
         fig.add_trace(
             go.Scatter(
                 x=source_df["FechaHora"],
-                y=source_df[column_name],
+                y=source_df[source_name],
                 name=source_name,
                 mode="lines+markers",
                 line=dict(color=config["colors"][source_name], width=3),
@@ -820,7 +759,7 @@ def make_chart(df: pd.DataFrame, variable: str, selected_range: tuple) -> go.Fig
                         "<br>Diferencia valor: %{customdata[0]} "
                         + config["unit"]
                         + "<br>Diferencia %: %{customdata[1]}"
-                        if source_name == "WIGA"
+                        if source_name == SENSOR_NAMES[0]
                         else ""
                     )
                     + "<extra></extra>"
@@ -862,9 +801,9 @@ def make_chart(df: pd.DataFrame, variable: str, selected_range: tuple) -> go.Fig
             tickangle=0,
             ticklabelmode="period",
             range=(
-                [pd.Timestamp(start_date), pd.Timestamp(start_date) + pd.Timedelta(hours=23, minutes=59)]
+                [pd.Timestamp(start_date), pd.Timestamp(start_date) + AXIS_END_OFFSET]
                 if start_date == end_date
-                else [pd.Timestamp(start_date), pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59)]
+                else [pd.Timestamp(start_date), pd.Timestamp(end_date) + AXIS_END_OFFSET]
             ),
             tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
         ),
@@ -890,8 +829,8 @@ def make_chart(df: pd.DataFrame, variable: str, selected_range: tuple) -> go.Fig
     return fig
 
 
-def make_scatter_comparison(df: pd.DataFrame, variable: str, selected_range: tuple) -> go.Figure | None:
-    hourly = build_hourly_comparison(df, variable, selected_range).dropna(subset=["WIGA", "ECOWITT"]).copy()
+def make_scatter_comparison(comparison: pd.DataFrame, variable: str) -> go.Figure | None:
+    hourly = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
     if hourly.empty:
         return None
 
@@ -992,8 +931,7 @@ def make_scatter_comparison(df: pd.DataFrame, variable: str, selected_range: tup
     return fig
 
 
-def get_difference_stats(df: pd.DataFrame, variable: str, selected_range: tuple) -> dict:
-    comparison = build_hourly_comparison(df, variable, selected_range).copy()
+def get_difference_stats(comparison: pd.DataFrame) -> dict:
     valid_diff = pd.to_numeric(comparison["DiffValue"], errors="coerce").dropna()
 
     if valid_diff.empty:
@@ -1006,9 +944,9 @@ def get_difference_stats(df: pd.DataFrame, variable: str, selected_range: tuple)
     }
 
 
-def render_stats_block(df: pd.DataFrame, variable: str, selected_range: tuple) -> None:
+def render_stats_block(comparison: pd.DataFrame, variable: str) -> None:
     config = VARIABLES[variable]
-    stats = get_difference_stats(df, variable, selected_range)
+    stats = get_difference_stats(comparison)
     std_diff = stats["std_diff"]
     count_value = stats["count"]
 
@@ -1039,15 +977,9 @@ def render_stats_block(df: pd.DataFrame, variable: str, selected_range: tuple) -
         st.caption(f"Registros comparados: {count_value}")
 
 
-def render_chart_block(df: pd.DataFrame, variable: str, selected_range: tuple) -> None:
+def render_chart_block(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
     config = VARIABLES[variable]
-    wiga_col = f"{variable} - WIGA"
-    ecowitt_col = f"{variable} - ECOWITT"
-    available_sources = []
-    if df[wiga_col].notna().any():
-        available_sources.append("WIGA")
-    if df[ecowitt_col].notna().any():
-        available_sources.append("ECOWITT")
+    available_sources = get_available_sources(comparison)
 
     if not available_sources:
         st.markdown(
@@ -1063,23 +995,21 @@ def render_chart_block(df: pd.DataFrame, variable: str, selected_range: tuple) -
         )
         return
 
-    hourly_wiga = build_hourly_series(df, wiga_col, selected_range)
-    hourly_eco = build_hourly_series(df, ecowitt_col, selected_range)
-    overlap = hourly_wiga.merge(hourly_eco, on="FechaHora", how="inner").dropna()
+    overlap = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
     diff_text = "Sin traslape suficiente para calcular diferencia promedio."
     if not overlap.empty:
-        avg_diff = (overlap[wiga_col] - overlap[ecowitt_col]).abs().mean()
+        avg_diff = overlap["DiffValue"].mean()
         diff_text = f"Diferencia promedio entre sensores: {format_number(avg_diff, 2)} {config['unit']}"
     elif len(available_sources) == 1:
         diff_text = f"Solo hay datos disponibles para {available_sources[0]} en este rango."
 
-    render_stats_block(df, variable, selected_range)
+    render_stats_block(comparison, variable)
     st.caption(diff_text)
-    st.plotly_chart(make_chart(df, variable, selected_range), width="stretch")
+    st.plotly_chart(make_chart(comparison, variable, selected_range), width="stretch")
 
 
-def render_scatter_block(df: pd.DataFrame, variable: str, selected_range: tuple) -> None:
-    fig = make_scatter_comparison(df, variable, selected_range)
+def render_scatter_block(comparison: pd.DataFrame, variable: str) -> None:
+    fig = make_scatter_comparison(comparison, variable)
     if fig is None:
         st.info("No hay suficientes datos simultáneos entre WIGA y ECOWITT para construir la dispersión.")
         return
@@ -1107,54 +1037,65 @@ def build_detail_table(df: pd.DataFrame) -> pd.DataFrame:
     return table
 
 
-inject_styles()
-build_hero()
+def build_summary_table(source_data: dict[str, pd.DataFrame], selected_range: DateRange) -> pd.DataFrame:
+    summary_rows = []
+    for source_name, source_df in source_data.items():
+        current = source_df[source_df["FechaHora"].dt.date.between(*selected_range)].copy()
+        summary_rows.append(
+            {
+                "Equipo": source_name,
+                "Registros": len(current),
+                "Inicio": current["FechaHora"].min().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
+                "Fin": current["FechaHora"].max().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
+            }
+        )
+    return pd.DataFrame(summary_rows)
 
-try:
-    comparative_df, source_data = load_data()
-except Exception as error:
-    st.error(f"No fue posible cargar el archivo de Excel. Detalle: {error}")
-    st.stop()
 
-filtered_df, selected_range, min_date, max_date = date_filter(comparative_df)
+def main() -> None:
+    configure_page()
+    inject_styles()
+    build_hero()
 
-if filtered_df.empty:
-    st.warning("No hay datos disponibles para el rango seleccionado.")
-    st.stop()
+    try:
+        comparative_df, source_data = load_data()
+    except Exception as error:
+        st.error(f"No fue posible cargar el archivo de Excel. Detalle: {error}")
+        st.stop()
 
-st.markdown('<div class="section-title">Series comparativas</div>', unsafe_allow_html=True)
-render_day_navigation(min_date, max_date)
-st.markdown(
-    '<div class="selector-shell">Selecciona la variable que quieres analizar</div>',
-    unsafe_allow_html=True,
-)
-selected_variable = st.segmented_control(
-    "Variable",
-    options=list(VARIABLES.keys()),
-    format_func=lambda x: VARIABLES[x]["title"].replace("Comparativa de ", "").capitalize(),
-    default=list(VARIABLES.keys())[0],
-    label_visibility="collapsed",
-)
-render_chart_block(filtered_df, selected_variable, selected_range)
-render_scatter_block(filtered_df, selected_variable, selected_range)
+    filtered_df, selected_range, min_date, max_date = date_filter(comparative_df)
 
-with st.expander("Ver registros y resumen", expanded=False):
-    st.markdown('<div class="data-shell"></div>', unsafe_allow_html=True)
-    tab_data, tab_resume = st.tabs(["Tabla completa", "Resumen por equipo"])
+    if filtered_df.empty:
+        st.warning("No hay datos disponibles para el rango seleccionado.")
+        st.stop()
 
-    with tab_data:
-        st.dataframe(build_detail_table(filtered_df), width="stretch", hide_index=True)
+    st.markdown('<div class="section-title">Series comparativas</div>', unsafe_allow_html=True)
+    render_day_navigation(min_date, max_date)
+    st.markdown(
+        '<div class="selector-shell">Selecciona la variable que quieres analizar</div>',
+        unsafe_allow_html=True,
+    )
+    selected_variable = st.segmented_control(
+        "Variable",
+        options=list(VARIABLES.keys()),
+        format_func=lambda x: VARIABLES[x]["title"].replace("Comparativa de ", "").capitalize(),
+        default=list(VARIABLES.keys())[0],
+        label_visibility="collapsed",
+    )
+    comparison = build_hourly_comparison(filtered_df, selected_variable, selected_range)
+    render_chart_block(comparison, selected_variable, selected_range)
+    render_scatter_block(comparison, selected_variable)
 
-    with tab_resume:
-        summary_rows = []
-        for source_name, source_df in source_data.items():
-            current = source_df[source_df["FechaHora"].dt.date.between(*selected_range)].copy()
-            summary_rows.append(
-                {
-                    "Equipo": source_name,
-                    "Registros": len(current),
-                    "Inicio": current["FechaHora"].min().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
-                    "Fin": current["FechaHora"].max().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
-                }
-            )
-        st.dataframe(pd.DataFrame(summary_rows), width="stretch", hide_index=True)
+    with st.expander("Ver registros y resumen", expanded=False):
+        st.markdown('<div class="data-shell"></div>', unsafe_allow_html=True)
+        tab_data, tab_resume = st.tabs(["Tabla completa", "Resumen por equipo"])
+
+        with tab_data:
+            st.dataframe(build_detail_table(filtered_df), width="stretch", hide_index=True)
+
+        with tab_resume:
+            st.dataframe(build_summary_table(source_data, selected_range), width="stretch", hide_index=True)
+
+
+if __name__ == "__main__":
+    main()
