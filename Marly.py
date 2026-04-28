@@ -17,6 +17,7 @@ REMOTE_EXCEL_URL = (
     "juandavdidtejedormedina-rgb/Marley/"
     "4b965708640420750075a41a3d079816c91a3d36/"
     "Datos%20marley%20monta%C3%B1a.xlsx"
+    #Datos%20final%20marley.xlsx
 )
 SENSOR_NAMES = ("WIGA", "ECOWITT")
 TIME_BUCKET = "30min"
