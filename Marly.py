@@ -9,6 +9,8 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_EXCEL_PATHS = [
+    BASE_DIR / "Datos Final.xlsx",
+    BASE_DIR / "Datos" / "Datos Final.xlsx",
     BASE_DIR / "Datos final marley.xlsx",
     BASE_DIR / "Datos" / "Datos final marley.xlsx",
 ]
@@ -37,11 +39,19 @@ BRAND_COLORS = {
 }
 
 SHEETS = {
-    "WIGA MARLEY": "WIGA",
-    "ECOWIT MARLEY": "ECOWITT",
+    "WIGA": ["WIGGA MONTAÑA", "WIGA MARLEY"],
+    "ECOWITT": ["ECOWITT MONTAÑA", "ECOWIT MARLEY"],
 }
 
 VARIABLES = {
+    "Gramos de agua (g)": {
+        "title": "Comparativa de gramos de agua",
+        "unit": "g",
+        "short": "Gramos de agua",
+        "colors": {"WIGA": "#4E8D7C", "ECOWITT": "#5AA6A6"},
+        "accent": "#4E8D7C",
+        "soft": "rgba(78, 141, 124, 0.18)",
+    },
     "Humedad Relativa (%)": {
         "title": "Comparativa de humedades",
         "unit": "%",
@@ -71,14 +81,21 @@ VARIABLES = {
 CANONICAL_COLUMNS = {
     "fecha": "Fecha",
     "hora": "Hora",
+    "fecha hora": "FechaHora",
+    "fechahora": "FechaHora",
+    "tiempo de lectura": "FechaHora",
+    "gramos de agua g": "Gramos de agua (g)",
+    "gramos de agua": "Gramos de agua (g)",
     "humedad relativa (%)": "Humedad Relativa (%)",
     "humedad relativa %": "Humedad Relativa (%)",
     "temperatura (c)": "Temperatura (°C)",
     "temperatura °c": "Temperatura (°C)",
     "temperatura c": "Temperatura (°C)",
+    "temperatura montana c": "Temperatura (°C)",
     "radiacion par (mol m-2 s-1)": "Radiación PAR (µmol m-2 s-1)",
     "radiacion par (umol m-2 s-1)": "Radiación PAR (µmol m-2 s-1)",
     "radiacion par umol m-2 s-1": "Radiación PAR (µmol m-2 s-1)",
+    "radiacion par mol m-2 s-1": "Radiación PAR (µmol m-2 s-1)",
 }
 
 
@@ -427,33 +444,71 @@ def ensure_expected_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def coerce_measurement_columns(df: pd.DataFrame) -> pd.DataFrame:
+    for column in VARIABLES:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df
+
+
+def resolve_sheet_name(sheet_names: list[str], aliases: list[str], source_name: str) -> str:
+    for alias in aliases:
+        if alias in sheet_names:
+            return alias
+
+    normalized_lookup = {normalize_text(name): name for name in sheet_names}
+    for alias in aliases:
+        match = normalized_lookup.get(normalize_text(alias))
+        if match:
+            return match
+
+    raise ValueError(
+        f"No se encontró una hoja válida para {source_name}. "
+        f"Hojas disponibles: {', '.join(sheet_names)}"
+    )
+
+
 def load_wiga_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
     df = pd.read_excel(source, sheet_name=sheet_name)
     df = standardize_columns(df)
     df = ensure_expected_columns(df)
+    df = coerce_measurement_columns(df)
     return df
 
 
 def load_ecowitt_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
-    # ECOWITT arrives without a stable header row, so we normalize it manually.
-    raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
-    raw = raw.iloc[:, :4].copy()
-    raw.columns = [
-        "FechaHora",
-        "Humedad Relativa (%)",
-        "Radiación PAR (µmol m-2 s-1)",
-        "Temperatura (°C)",
-    ]
+    df = pd.read_excel(source, sheet_name=sheet_name)
+    df = standardize_columns(df)
 
-    # Some files store the first timestamp as a mistaken header in row 0.
-    raw["FechaHora"] = pd.to_datetime(raw["FechaHora"], errors="coerce")
-    raw["Humedad Relativa (%)"] = pd.to_numeric(raw["Humedad Relativa (%)"], errors="coerce")
-    raw["Radiación PAR (µmol m-2 s-1)"] = pd.to_numeric(raw["Radiación PAR (µmol m-2 s-1)"], errors="coerce")
-    raw["Temperatura (°C)"] = pd.to_numeric(raw["Temperatura (°C)"], errors="coerce")
-    raw = raw.dropna(subset=["FechaHora"])
-    raw["Fecha"] = raw["FechaHora"].dt.strftime("%Y-%m-%d")
-    raw["Hora"] = raw["FechaHora"].dt.strftime("%H:%M:%S")
-    return raw[["Fecha", "Hora", "Humedad Relativa (%)", "Radiación PAR (µmol m-2 s-1)", "Temperatura (°C)"]]
+    if "FechaHora" not in df.columns:
+        # Legacy ECOWITT files arrive without stable headers, so we normalize manually.
+        raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
+        raw = raw.iloc[:, :5].copy()
+        if raw.shape[1] >= 5:
+            raw.columns = [
+                "FechaHora",
+                "Gramos de agua (g)",
+                "Humedad Relativa (%)",
+                "Radiación PAR (µmol m-2 s-1)",
+                "Temperatura (°C)",
+            ]
+        else:
+            raw = raw.iloc[:, :4].copy()
+            raw.columns = [
+                "FechaHora",
+                "Humedad Relativa (%)",
+                "Radiación PAR (µmol m-2 s-1)",
+                "Temperatura (°C)",
+            ]
+        df = raw
+
+    df["FechaHora"] = pd.to_datetime(df["FechaHora"], errors="coerce", dayfirst=True)
+    df = ensure_expected_columns(df)
+    df = coerce_measurement_columns(df)
+    df = df.dropna(subset=["FechaHora"])
+    df["Fecha"] = df["FechaHora"].dt.strftime("%Y-%m-%d")
+    df["Hora"] = df["FechaHora"].dt.strftime("%H:%M:%S")
+    return df[["Fecha", "Hora", *VARIABLES.keys()]]
 
 
 def resolve_excel_source() -> str | Path:
@@ -466,10 +521,12 @@ def resolve_excel_source() -> str | Path:
 @st.cache_data(show_spinner="Cargando archivo de datos...")
 def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     excel_source = resolve_excel_source()
+    workbook = pd.ExcelFile(excel_source)
 
     source_frames: dict[str, pd.DataFrame] = {}
 
-    for sheet_name, source_name in SHEETS.items():
+    for source_name, aliases in SHEETS.items():
+        sheet_name = resolve_sheet_name(workbook.sheet_names, aliases, source_name)
         if source_name == "WIGA":
             df = load_wiga_sheet(excel_source, sheet_name)
         else:
@@ -505,7 +562,7 @@ def build_hero() -> None:
                 <p class="hero-kicker">Dashboard ambiental</p>
                 <h1>Comparativa visual entre WIGA y ECOWITT en la finca Marly</h1>
                 <p class="hero-subtitle">
-                    Lectura comparativa de humedad relativa, temperatura y radiación PAR
+                    Lectura comparativa de gramos de agua, humedad relativa, temperatura y radiación PAR
                     para detectar diferencias entre ambos equipos a lo largo del tiempo
                     con un estilo ejecutivo y fácil de leer.
                 </p>
@@ -689,6 +746,22 @@ def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     values = pd.concat(series, ignore_index=True)
     vmin = float(values.min())
     vmax = float(values.max())
+
+    if variable == "Gramos de agua (g)":
+        axis_min = round(max(0, vmin - 0.5), 2)
+        axis_max = round(vmax + 0.5, 2)
+        spread = max(axis_max - axis_min, 0.1)
+        if spread <= 2:
+            dtick = 0.2
+        elif spread <= 5:
+            dtick = 0.5
+        else:
+            dtick = 1
+        return {
+            "title": "Gramos de agua (g)",
+            "range": [axis_min, axis_max],
+            "dtick": dtick,
+        }
 
     if variable == "Humedad Relativa (%)":
         axis_min = max(0, min(100, (int(vmin // 5) * 5) - 5))
