@@ -16,7 +16,8 @@ REMOTE_EXCEL_URL = (
     "https://raw.githubusercontent.com/"
     "juandavdidtejedormedina-rgb/Marley/"
     "4b965708640420750075a41a3d079816c91a3d36/"
-    "Datos%20final%20marley.xlsx"
+    "https://github.com/juandavdidtejedormedina-rgb/Marley/blob/d87efccebd298fe1d6d1f501fe9b2075d27e3247/Datos%20marley%20monta%C3%B1a.xlsx
+"
 )
 SENSOR_NAMES = ("WIGA", "ECOWITT")
 TIME_BUCKET = "30min"
