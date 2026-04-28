@@ -9,14 +9,8 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_EXCEL_PATHS = [
-    BASE_DIR / "Datos Final.xlsx",
-    BASE_DIR / "Datos" / "Datos Final.xlsx",
     BASE_DIR / "Datos Final marley.xlsx",
     BASE_DIR / "Datos" / "Datos Final marley.xlsx",
-    BASE_DIR / "Datos marley montaña.xlsx",
-    BASE_DIR / "Datos" / "Datos marley montaña.xlsx",
-    BASE_DIR / "Datos final marley.xlsx",
-    BASE_DIR / "Datos" / "Datos final marley.xlsx",
 ]
 REMOTE_EXCEL_URLS = [
     (
@@ -24,18 +18,6 @@ REMOTE_EXCEL_URLS = [
         "juandavdidtejedormedina-rgb/Marley/"
         "4b965708640420750075a41a3d079816c91a3d36/"
         "Datos%20Final%20marley.xlsx"
-    ),
-    (
-        "https://raw.githubusercontent.com/"
-        "juandavdidtejedormedina-rgb/Marley/"
-        "4b965708640420750075a41a3d079816c91a3d36/"
-        "Datos%20marley%20monta%C3%B1a.xlsx"
-    ),
-    (
-        "https://raw.githubusercontent.com/"
-        "juandavdidtejedormedina-rgb/Marley/"
-        "4b965708640420750075a41a3d079816c91a3d36/"
-        "Datos%20final%20marley.xlsx"
     ),
 ]
 SENSOR_NAMES = ("WIGA", "ECOWITT")
@@ -537,42 +519,54 @@ def resolve_excel_sources() -> list[str | Path]:
     return sources
 
 
+def build_source_signature(excel_source: str | Path) -> str:
+    if isinstance(excel_source, Path):
+        stat = excel_source.stat()
+        return f"{excel_source}|{stat.st_mtime_ns}|{stat.st_size}"
+    return str(excel_source)
+
+
 @st.cache_data(show_spinner="Cargando archivo de datos...")
+def load_data_from_source(excel_source: str | Path, source_signature: str) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    _ = source_signature
+    workbook = pd.ExcelFile(excel_source)
+    source_frames: dict[str, pd.DataFrame] = {}
+
+    for source_name, aliases in SHEETS.items():
+        sheet_name = resolve_sheet_name(workbook.sheet_names, aliases, source_name)
+        if source_name == "WIGA":
+            df = load_wiga_sheet(excel_source, sheet_name)
+        else:
+            df = load_ecowitt_sheet(excel_source, sheet_name)
+        df["FechaHora"] = pd.to_datetime(
+            df["Fecha"].astype(str) + " " + df["Hora"].astype(str),
+            errors="coerce",
+        )
+        df = df.dropna(subset=["FechaHora"]).sort_values("FechaHora")
+
+        columns = ["FechaHora", *VARIABLES.keys()]
+        df = df[columns].copy()
+        for variable in VARIABLES:
+            df.rename(columns={variable: f"{variable} - {source_name}"}, inplace=True)
+        source_frames[source_name] = df
+
+    merged = None
+    for frame in source_frames.values():
+        merged = frame if merged is None else merged.merge(frame, on="FechaHora", how="outer")
+
+    if merged is None:
+        raise ValueError("No fue posible construir la tabla consolidada de sensores.")
+
+    merged = merged.sort_values("FechaHora").reset_index(drop=True)
+    return merged, source_frames
+
+
 def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
     errors: list[str] = []
 
     for excel_source in resolve_excel_sources():
         try:
-            workbook = pd.ExcelFile(excel_source)
-            source_frames: dict[str, pd.DataFrame] = {}
-
-            for source_name, aliases in SHEETS.items():
-                sheet_name = resolve_sheet_name(workbook.sheet_names, aliases, source_name)
-                if source_name == "WIGA":
-                    df = load_wiga_sheet(excel_source, sheet_name)
-                else:
-                    df = load_ecowitt_sheet(excel_source, sheet_name)
-                df["FechaHora"] = pd.to_datetime(
-                    df["Fecha"].astype(str) + " " + df["Hora"].astype(str),
-                    errors="coerce",
-                )
-                df = df.dropna(subset=["FechaHora"]).sort_values("FechaHora")
-
-                columns = ["FechaHora", *VARIABLES.keys()]
-                df = df[columns].copy()
-                for variable in VARIABLES:
-                    df.rename(columns={variable: f"{variable} - {source_name}"}, inplace=True)
-                source_frames[source_name] = df
-
-            merged = None
-            for frame in source_frames.values():
-                merged = frame if merged is None else merged.merge(frame, on="FechaHora", how="outer")
-
-            if merged is None:
-                raise ValueError("No fue posible construir la tabla consolidada de sensores.")
-
-            merged = merged.sort_values("FechaHora").reset_index(drop=True)
-            return merged, source_frames
+            return load_data_from_source(excel_source, build_source_signature(excel_source))
         except Exception as error:
             errors.append(f"{excel_source}: {error}")
 
