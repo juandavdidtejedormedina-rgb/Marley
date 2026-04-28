@@ -16,7 +16,6 @@ REMOTE_EXCEL_URL = (
     "https://raw.githubusercontent.com/"
     "juandavdidtejedormedina-rgb/Marley/"
     "4b965708640420750075a41a3d079816c91a3d36/"
-    #"Datos%20marley%20monta%C3%B1a.xlsx"
     "Datos%20final%20marley.xlsx"
 )
 SENSOR_NAMES = ("WIGA", "ECOWITT")
@@ -674,6 +673,66 @@ def get_available_sources(comparison: pd.DataFrame) -> list[str]:
     return [source_name for source_name in SENSOR_NAMES if comparison[source_name].notna().any()]
 
 
+def build_plot_series(
+    df: pd.DataFrame,
+    column_name: str,
+    selected_range: DateRange,
+) -> pd.DataFrame:
+    start_date, end_date = selected_range
+    start_ts = pd.Timestamp(start_date)
+    end_ts = pd.Timestamp(end_date) + AXIS_END_OFFSET
+
+    source_df = df[["FechaHora", column_name]].dropna(subset=[column_name]).copy()
+    if source_df.empty:
+        return source_df
+
+    mask = source_df["FechaHora"].between(start_ts, end_ts)
+    return source_df.loc[mask].sort_values("FechaHora").reset_index(drop=True)
+
+
+def attach_nearest_difference(
+    base_df: pd.DataFrame,
+    other_df: pd.DataFrame,
+    base_column: str,
+    other_column: str,
+) -> pd.DataFrame:
+    result = base_df.copy()
+    if result.empty:
+        result["DiffValueLabel"] = []
+        result["DiffPctLabel"] = []
+        return result
+
+    result["DiffValueLabel"] = "No disponible"
+    result["DiffPctLabel"] = "No disponible"
+
+    if other_df.empty:
+        return result
+
+    merged = pd.merge_asof(
+        result.sort_values("FechaHora"),
+        other_df.sort_values("FechaHora").rename(columns={other_column: "MatchedValue"})[["FechaHora", "MatchedValue"]],
+        on="FechaHora",
+        direction="nearest",
+        tolerance=pd.Timedelta(minutes=15),
+    )
+
+    valid_mask = merged[base_column].notna() & merged["MatchedValue"].notna()
+    if not valid_mask.any():
+        return merged
+
+    merged.loc[valid_mask, "DiffValue"] = (
+        merged.loc[valid_mask, base_column] - merged.loc[valid_mask, "MatchedValue"]
+    ).abs()
+    merged.loc[valid_mask, "DiffValueLabel"] = merged.loc[valid_mask, "DiffValue"].map(lambda value: f"{value:.2f}")
+
+    pct_mask = valid_mask & (merged["MatchedValue"] != 0)
+    merged.loc[pct_mask, "DiffPct"] = (
+        merged.loc[pct_mask, "DiffValue"] / merged.loc[pct_mask, "MatchedValue"] * 100
+    )
+    merged.loc[pct_mask, "DiffPctLabel"] = merged.loc[pct_mask, "DiffPct"].map(lambda value: f"{value:.2f}%")
+    return merged
+
+
 def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     series = []
     for source_name in SENSOR_NAMES:
@@ -729,22 +788,32 @@ def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     }
 
 
-def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure:
+def make_chart(df: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure:
     config = VARIABLES[variable]
     fig = go.Figure()
-    time_axis = get_time_axis_config(comparison)
-    y_axis = get_y_axis_config(comparison.rename(columns={name: f"{variable} - {name}" for name in SENSOR_NAMES}), variable)
+    time_axis = get_time_axis_config(df)
+    y_axis = get_y_axis_config(df, variable)
     start_date, end_date = selected_range
+    wiga_col = f"{variable} - WIGA"
+    ecowitt_col = f"{variable} - ECOWITT"
+
+    wiga_series = build_plot_series(df, wiga_col, selected_range)
+    ecowitt_series = build_plot_series(df, ecowitt_col, selected_range)
+    plot_series = {
+        "WIGA": attach_nearest_difference(wiga_series, ecowitt_series, wiga_col, ecowitt_col),
+        "ECOWITT": attach_nearest_difference(ecowitt_series, wiga_series, ecowitt_col, wiga_col),
+    }
 
     for source_name in SENSOR_NAMES:
-        source_df = comparison[["FechaHora", source_name, "DiffValueLabel", "DiffPctLabel"]].copy()
-        if source_df[source_name].dropna().empty:
+        column_name = f"{variable} - {source_name}"
+        source_df = plot_series[source_name]
+        if source_df.empty or source_df[column_name].dropna().empty:
             continue
 
         fig.add_trace(
             go.Scatter(
                 x=source_df["FechaHora"],
-                y=source_df[source_name],
+                y=source_df[column_name],
                 name=source_name,
                 mode="lines+markers",
                 line=dict(color=config["colors"][source_name], width=3),
@@ -756,13 +825,9 @@ def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRang
                     + f"{source_name}: "
                     + "%{y:.2f} "
                     + config["unit"]
-                    + (
-                        "<br>Diferencia valor: %{customdata[0]} "
-                        + config["unit"]
-                        + "<br>Diferencia %: %{customdata[1]}"
-                        if source_name == SENSOR_NAMES[0]
-                        else ""
-                    )
+                    + "<br>Diferencia valor: %{customdata[0]} "
+                    + config["unit"]
+                    + "<br>Diferencia %: %{customdata[1]}"
                     + "<extra></extra>"
                 ),
             )
@@ -779,7 +844,7 @@ def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRang
         margin=dict(l=28, r=28, t=74, b=28),
         paper_bgcolor="rgba(255,255,255,0)",
         plot_bgcolor="rgba(250,248,243,0.72)",
-        hovermode="x unified",
+        hovermode="closest",
         template="plotly_white",
         legend=dict(
             orientation="h",
@@ -978,7 +1043,7 @@ def render_stats_block(comparison: pd.DataFrame, variable: str) -> None:
         st.caption(f"Registros comparados: {count_value}")
 
 
-def render_chart_block(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
+def render_chart_block(df: pd.DataFrame, comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
     config = VARIABLES[variable]
     available_sources = get_available_sources(comparison)
 
@@ -1006,7 +1071,7 @@ def render_chart_block(comparison: pd.DataFrame, variable: str, selected_range: 
 
     render_stats_block(comparison, variable)
     st.caption(diff_text)
-    st.plotly_chart(make_chart(comparison, variable, selected_range), width="stretch")
+    st.plotly_chart(make_chart(df, variable, selected_range), width="stretch")
 
 
 def render_scatter_block(comparison: pd.DataFrame, variable: str) -> None:
@@ -1084,7 +1149,7 @@ def main() -> None:
         label_visibility="collapsed",
     )
     comparison = build_hourly_comparison(filtered_df, selected_variable, selected_range)
-    render_chart_block(comparison, selected_variable, selected_range)
+    render_chart_block(filtered_df, comparison, selected_variable, selected_range)
     render_scatter_block(comparison, selected_variable)
 
     with st.expander("Ver registros y resumen", expanded=False):
