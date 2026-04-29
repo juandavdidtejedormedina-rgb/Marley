@@ -18,7 +18,6 @@ REMOTE_EXCEL_URLS = [
         "juandavdidtejedormedina-rgb/Marley/"
         "4b965708640420750075a41a3d079816c91a3d36/"
         "Datos%20Final%20marley.xlsx"
-        #datos Marly EUC Montaña
     ),
 ]
 SENSOR_NAMES = ("WIGA", "ECOWITT")
@@ -614,6 +613,11 @@ def date_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, DateRange, date, date]:
 
     if "selected_day" not in st.session_state:
         st.session_state["selected_day"] = max_date
+    else:
+        st.session_state["selected_day"] = min(
+            max(st.session_state["selected_day"], min_date),
+            max_date,
+        )
 
     start_date = st.session_state["selected_day"]
     end_date = st.session_state["selected_day"]
@@ -673,7 +677,7 @@ def get_time_axis_config(df: pd.DataFrame) -> dict:
         return {
             "tickformat": "%H:%M",
             "dtick": 1 * 60 * 60 * 1000,
-            "title": "Hora del dia",
+            "title": "Hora del día",
         }
     if total_days <= 3:
         return {
@@ -710,7 +714,7 @@ def build_hourly_series(
     return source_df
 
 def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: DateRange) -> pd.DataFrame:
-    # This is the shared comparison table used by both charts and metrics.
+    # Build 30-minute averages for both sensors so every comparison uses the same time base.
     wiga_col = f"{variable} - WIGA"
     ecowitt_col = f"{variable} - ECOWITT"
 
@@ -719,20 +723,31 @@ def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: Dat
     comparison = hourly_wiga.merge(hourly_eco, on="FechaHora", how="outer")
     comparison["DiffPct"] = pd.NA
     comparison["DiffValue"] = pd.NA
+    comparison["SignedDiff"] = pd.NA
 
     valid_mask = (
         comparison["WIGA"].notna()
         & comparison["ECOWITT"].notna()
     )
-    comparison.loc[valid_mask, "DiffValue"] = (
+    comparison.loc[valid_mask, "SignedDiff"] = (
         comparison.loc[valid_mask, "WIGA"] - comparison.loc[valid_mask, "ECOWITT"]
-    ).abs()
+    )
+    comparison.loc[valid_mask, "DiffValue"] = comparison.loc[valid_mask, "SignedDiff"].abs()
 
-    pct_mask = valid_mask & (comparison["ECOWITT"] != 0)
-    comparison.loc[pct_mask, "DiffPct"] = (
-        comparison.loc[pct_mask, "DiffValue"]
-        / comparison.loc[pct_mask, "ECOWITT"]
+    pct_base = (
+        comparison.loc[valid_mask, "WIGA"].abs()
+        + comparison.loc[valid_mask, "ECOWITT"].abs()
+    ) / 2
+    valid_pct_index = pct_base[pct_base != 0].index
+    comparison.loc[valid_pct_index, "DiffPct"] = (
+        comparison.loc[valid_pct_index, "DiffValue"]
+        / pct_base.loc[valid_pct_index]
         * 100
+    )
+    comparison["SignedDiffLabel"] = comparison["SignedDiff"].apply(
+        lambda value: "No disponible"
+        if pd.isna(value)
+        else f"{value:+.2f}"
     )
     comparison["DiffValueLabel"] = comparison["DiffValue"].apply(
         lambda value: "No disponible"
@@ -816,7 +831,7 @@ def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
     else:
         dtick = 100
     return {
-        "title": "Radiacion PAR (µmol m-2 s-1)",
+        "title": "Radiación PAR (µmol m-2 s-1)",
         "range": [-25, axis_max],
         "dtick": dtick,
     }
@@ -830,7 +845,9 @@ def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRang
     start_date, end_date = selected_range
 
     for source_name in SENSOR_NAMES:
-        source_df = comparison[["FechaHora", source_name, "DiffValueLabel", "DiffPctLabel"]].copy()
+        source_df = comparison[
+            ["FechaHora", source_name, "SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]
+        ].copy()
         if source_df[source_name].dropna().empty:
             continue
 
@@ -843,16 +860,18 @@ def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRang
                 line=dict(color=config["colors"][source_name], width=3),
                 marker=dict(size=6),
                 connectgaps=False,
-                customdata=source_df[["DiffValueLabel", "DiffPctLabel"]],
+                customdata=source_df[["SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]],
                 hovertemplate=(
                     "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
                     + f"{source_name}: "
                     + "%{y:.2f} "
                     + config["unit"]
                     + (
-                        "<br>Diferencia valor: %{customdata[0]} "
+                        "<br>Diferencia WIGA - ECOWITT: %{customdata[0]} "
                         + config["unit"]
-                        + "<br>Diferencia %: %{customdata[1]}"
+                        + "<br>Diferencia absoluta: %{customdata[1]} "
+                        + config["unit"]
+                        + "<br>Diferencia % sobre promedio: %{customdata[2]}"
                         if source_name == SENSOR_NAMES[0]
                         else ""
                     )
@@ -923,6 +942,79 @@ def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRang
     return fig
 
 
+def make_difference_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure | None:
+    diff_df = comparison[["FechaHora", "SignedDiff"]].dropna().copy()
+    if diff_df.empty:
+        return None
+
+    config = VARIABLES[variable]
+    start_date, end_date = selected_range
+    time_axis = get_time_axis_config(comparison)
+    max_abs_diff = float(diff_df["SignedDiff"].abs().max())
+    axis_limit = max(round(max_abs_diff * 1.15, 2), 0.5)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=diff_df["FechaHora"],
+            y=diff_df["SignedDiff"],
+            name="WIGA - ECOWITT",
+            mode="lines+markers",
+            line=dict(color=config["accent"], width=3),
+            marker=dict(size=6),
+            hovertemplate=(
+                "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
+                + "Diferencia: %{y:+.2f} "
+                + config["unit"]
+                + "<extra></extra>"
+            ),
+        )
+    )
+    fig.add_hline(y=0, line_width=1.4, line_dash="dash", line_color="rgba(45, 48, 64, 0.45)")
+    fig.update_layout(
+        title=dict(
+            text="Diferencia entre sensores por bloque de 30 minutos",
+            x=0,
+            xanchor="left",
+            font=dict(size=20, color=BRAND_COLORS["graphite"], family="Manrope, sans-serif"),
+        ),
+        height=360,
+        margin=dict(l=28, r=28, t=72, b=28),
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(250,248,243,0.72)",
+        template="plotly_white",
+        xaxis=dict(
+            title=time_axis["title"],
+            showgrid=True,
+            gridcolor="rgba(76, 70, 120, 0.07)",
+            zeroline=False,
+            tickformat=time_axis["tickformat"],
+            dtick=time_axis["dtick"],
+            range=(
+                [pd.Timestamp(start_date), pd.Timestamp(start_date) + AXIS_END_OFFSET]
+                if start_date == end_date
+                else [pd.Timestamp(start_date), pd.Timestamp(end_date) + AXIS_END_OFFSET]
+            ),
+            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
+        ),
+        yaxis=dict(
+            title=f"Diferencia ({config['unit']})",
+            range=[-axis_limit, axis_limit],
+            showgrid=True,
+            gridcolor="rgba(76, 70, 120, 0.07)",
+            zeroline=False,
+            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
+        ),
+        font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
+        hoverlabel=dict(
+            bgcolor="rgba(249, 246, 240, 0.98)",
+            bordercolor="rgba(76, 70, 120, 0.16)",
+            font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"], size=12),
+        ),
+    )
+    return fig
+
+
 def make_scatter_comparison(comparison: pd.DataFrame, variable: str) -> go.Figure | None:
     hourly = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
     if hourly.empty:
@@ -943,13 +1035,14 @@ def make_scatter_comparison(comparison: pd.DataFrame, variable: str) -> go.Figur
                 opacity=0.78,
                 line=dict(color="rgba(255,255,255,0.75)", width=1),
             ),
-            customdata=hourly[["FechaHora", "DiffValueLabel", "DiffPctLabel"]],
+            customdata=hourly[["FechaHora", "SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]],
             hovertemplate=(
                 "<b>%{customdata[0]|%Y-%m-%d %H:%M}</b><br>"
                 + "WIGA: %{x:.2f} " + config["unit"]
                 + "<br>ECOWITT: %{y:.2f} " + config["unit"]
-                + "<br>Diferencia valor: %{customdata[1]} " + config["unit"]
-                + "<br>Diferencia %: %{customdata[2]}"
+                + "<br>Diferencia WIGA - ECOWITT: %{customdata[1]} " + config["unit"]
+                + "<br>Diferencia absoluta: %{customdata[2]} " + config["unit"]
+                + "<br>Diferencia % sobre promedio: %{customdata[3]}"
                 + "<extra></extra>"
             ),
         )
@@ -1049,7 +1142,7 @@ def render_stats_block(comparison: pd.DataFrame, variable: str) -> None:
         <div class="chart-shell">
             <p class="chart-title">Desviación estándar de la diferencia</p>
             <p class="chart-caption">
-                La desviación estándar de la diferencia indica qué tan variable es la separación entre ambos sensores a lo largo del tiempo. Un valor bajo sugiere una diferencia constante (buena consistencia), mientras que un valor alto indica que la diferencia fluctúa, evidenciando menor concordancia entre las mediciones.
+                La desviación estándar de la diferencia indica qué tan variable es la separación entre ambos sensores a lo largo del tiempo. Un valor bajo sugiere una diferencia constante, mientras que un valor alto indica que la diferencia fluctúa más entre bloques de 30 minutos.
             </p>
         </div>
         """,
@@ -1065,7 +1158,7 @@ def render_stats_block(comparison: pd.DataFrame, variable: str) -> None:
                 if std_diff is not None
                 else "Sin datos"
             ),
-            help="Se calcula con la diferencia entre sensores en cada instante: WIGA - ECOWITT, y luego se obtiene su desviación estándar.",
+            help="Se calcula con la diferencia WIGA - ECOWITT en cada bloque de 30 minutos y luego se obtiene su desviación estándar.",
         )
     with col2:
         st.caption(f"Registros comparados: {count_value}")
@@ -1090,10 +1183,17 @@ def render_chart_block(comparison: pd.DataFrame, variable: str, selected_range: 
         return
 
     overlap = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
-    diff_text = "Sin traslape suficiente para calcular diferencia promedio."
+    diff_text = "Sin traslape suficiente para calcular diferencias promedio."
     if not overlap.empty:
         avg_diff = overlap["DiffValue"].mean()
-        diff_text = f"Diferencia promedio entre sensores: {format_number(avg_diff, 2)} {config['unit']}"
+        avg_signed_diff = overlap["SignedDiff"].mean()
+        avg_pct = overlap["DiffPct"].mean()
+        diff_text = (
+            f"Promedio por bloque de 30 minutos. "
+            f"Diferencia absoluta media: {format_number(avg_diff, 2)} {config['unit']}. "
+            f"Diferencia media WIGA - ECOWITT: {format_number(avg_signed_diff, 2)} {config['unit']}. "
+            f"Diferencia porcentual media sobre el promedio de ambos sensores: {format_number(avg_pct, 2)}%."
+        )
     elif len(available_sources) == 1:
         diff_text = f"Solo hay datos disponibles para {available_sources[0]} en este rango."
 
@@ -1117,6 +1217,25 @@ def render_scatter_block(comparison: pd.DataFrame, variable: str) -> None:
             </p>
             <p class="chart-caption">
                 Los puntos cercanos a esta línea indican una alta concordancia en las mediciones. Cuando un punto se ubica por encima de la línea, el sensor ECOWITT registra valores mayores que WIGA; mientras que si se ubica por debajo, WIGA registra valores superiores a ECOWITT. La dispersión de los puntos respecto a la línea permite evaluar la consistencia y diferencias entre ambos dispositivos.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_difference_block(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
+    fig = make_difference_chart(comparison, variable, selected_range)
+    if fig is None:
+        return
+
+    st.markdown(
+        """
+        <div class="chart-shell">
+            <p class="chart-title">Evolución de la diferencia</p>
+            <p class="chart-caption">
+                Esta serie muestra la diferencia firmada WIGA - ECOWITT en cada bloque de 30 minutos. Valores positivos indican que WIGA quedó por encima de ECOWITT; valores negativos indican lo contrario.
             </p>
         </div>
         """,
@@ -1166,7 +1285,7 @@ def main() -> None:
     st.markdown('<div class="section-title">Series comparativas</div>', unsafe_allow_html=True)
     render_day_navigation(min_date, max_date)
     st.markdown(
-        '<div class="selector-shell">Selecciona la variable que quieres analizar</div>',
+        '<div class="selector-shell">Selecciona la variable que quieres analizar. Todas las gráficas usan promedios por bloque de 30 minutos.</div>',
         unsafe_allow_html=True,
     )
     selected_variable = st.segmented_control(
@@ -1178,6 +1297,7 @@ def main() -> None:
     )
     comparison = build_hourly_comparison(filtered_df, selected_variable, selected_range)
     render_chart_block(comparison, selected_variable, selected_range)
+    render_difference_block(comparison, selected_variable, selected_range)
     render_scatter_block(comparison, selected_variable)
 
     with st.expander("Ver registros y resumen", expanded=False):
