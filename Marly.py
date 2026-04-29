@@ -18,6 +18,7 @@ REMOTE_EXCEL_URLS = [
         "juandavdidtejedormedina-rgb/Marley/"
         "4b965708640420750075a41a3d079816c91a3d36/"
         "Datos%20Final%20marley.xlsx"
+        #datos Marly EUC Montaña
     ),
 ]
 SENSOR_NAMES = ("WIGA", "ECOWITT")
