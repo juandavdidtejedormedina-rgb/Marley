@@ -19,13 +19,35 @@ st.set_page_config(
 
 IMAGEN_PORTADA = "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/app-streamlite/cbeea9b924f7db779843abdef9922e7fcf3c649d/Imagen%20portada.png"
 
-VIDEO_PERSONAJE = "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/app-streamlite/cbeea9b924f7db779843abdef9922e7fcf3c649d/personaje%202.mp4"
+PERSONAJES = {
+    "🦉 Búho aventurero": {
+        "nombre": "Búho aventurero",
+        "video": "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/Marley/b82a6ebeb66d35db9a7caee17718dda8441ed88f/personaje%202.mp4",
+        "descripcion": "Un compañero sabio, constante y motivador para iniciar tu aventura saludable."
+    },
+    "🐰 Conejito atleta": {
+        "nombre": "Conejito atleta",
+        "video": "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/Marley/b82a6ebeb66d35db9a7caee17718dda8441ed88f/personaje%203.mp4",
+        "descripcion": "Ideal para quienes quieren moverse más, ganar energía y cumplir misiones activas."
+    },
+    "🦊 Zorrito estratega": {
+        "nombre": "Zorrito estratega",
+        "video": "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/Marley/b82a6ebeb66d35db9a7caee17718dda8441ed88f/personaje%204.mp4",
+        "descripcion": "Perfecto para organizar metas, planear hábitos y avanzar con inteligencia."
+    },
+    "🐼 Panda tranquilo": {
+        "nombre": "Panda tranquilo",
+        "video": "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb/Marley/b82a6ebeb66d35db9a7caee17718dda8441ed88f/personaje%205.mp4",
+        "descripcion": "Un personaje calmado para trabajar descanso, equilibrio y autocuidado."
+    }
+}
 
 ARCHIVO_USUARIOS = Path("usuarios_lifequest.csv")
 
 COLUMNAS_USUARIOS = [
     "nombre",
     "personaje",
+    "video_personaje",
     "nivel",
     "xp_total",
     "racha"
@@ -68,6 +90,9 @@ def normalizar_tabla_usuarios(df):
         else:
             df["personaje"] = "Búho aventurero"
 
+    if "video_personaje" not in df.columns:
+        df["video_personaje"] = PERSONAJES["🦉 Búho aventurero"]["video"]
+
     if "nivel" not in df.columns:
         df["nivel"] = 1
 
@@ -84,6 +109,7 @@ def normalizar_tabla_usuarios(df):
 
     df["nombre"] = df["nombre"].fillna("").astype(str)
     df["personaje"] = df["personaje"].fillna("Búho aventurero").astype(str)
+    df["video_personaje"] = df["video_personaje"].fillna(PERSONAJES["🦉 Búho aventurero"]["video"]).astype(str)
     df["nivel"] = pd.to_numeric(df["nivel"], errors="coerce").fillna(1).astype(int)
     df["xp_total"] = pd.to_numeric(df["xp_total"], errors="coerce").fillna(0).astype(int)
     df["racha"] = pd.to_numeric(df["racha"], errors="coerce").fillna(0).astype(int)
@@ -110,7 +136,7 @@ def guardar_usuarios(df):
     df.to_csv(ARCHIVO_USUARIOS, index=False)
 
 
-def registrar_usuario(nombre, personaje):
+def registrar_usuario(nombre, personaje, video_personaje):
     usuarios = cargar_usuarios()
     nombre_limpio = nombre.strip()
 
@@ -128,6 +154,7 @@ def registrar_usuario(nombre, personaje):
             {
                 "nombre": nombre_limpio,
                 "personaje": personaje,
+                "video_personaje": video_personaje,
                 "nivel": 1,
                 "xp_total": 0,
                 "racha": 0
@@ -257,10 +284,6 @@ st.markdown(
         filter: drop-shadow(0 18px 35px rgba(15, 23, 42, 0.12));
     }
 
-    /* ============================================
-       BOTONES DEL MENÚ PRINCIPAL
-       ============================================ */
-
     .menu-button-wrapper {
         width: 100%;
         display: flex;
@@ -292,19 +315,16 @@ st.markdown(
         box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16) !important;
     }
 
-    /* Botón iniciar sesión */
     .login-btn div[data-testid="stButton"] > button {
         background: linear-gradient(135deg, #86efac, #22c55e) !important;
         color: white !important;
     }
 
-    /* Botón registrarse */
     .register-btn div[data-testid="stButton"] > button {
         background: linear-gradient(135deg, #fde68a, #fbbf24) !important;
         color: white !important;
     }
 
-    /* Botones generales de otras pantallas */
     div[data-testid="stButton"] > button {
         border-radius: 999px;
         border: none;
@@ -340,6 +360,26 @@ st.markdown(
         color: #64748b;
         font-size: 1.05rem;
         margin-bottom: 1.8rem;
+    }
+
+    .personaje-info {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 22px;
+        padding: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+    .personaje-info h3 {
+        color: #16a34a;
+        margin-bottom: 0.4rem;
+    }
+
+    .personaje-info p {
+        color: #64748b;
+        margin-bottom: 0;
     }
 
     .video-card {
@@ -483,16 +523,35 @@ def pantalla_registro():
             key="nombre_registro"
         )
 
-        personaje = st.selectbox(
+        personaje_seleccionado = st.selectbox(
             "Selecciona tu personaje",
-            ["Búho aventurero"],
+            list(PERSONAJES.keys()),
             key="personaje_registro"
+        )
+
+        datos_personaje = PERSONAJES[personaje_seleccionado]
+        nombre_personaje = datos_personaje["nombre"]
+        video_personaje = datos_personaje["video"]
+        descripcion_personaje = datos_personaje["descripcion"]
+
+        st.markdown(
+            f"""
+            <div class="personaje-info">
+                <h3>{personaje_seleccionado}</h3>
+                <p>{descripcion_personaje}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
 
         if st.button("✨ Crear mi cuenta", key="btn_crear_cuenta"):
-            exito, mensaje = registrar_usuario(nombre, personaje)
+            exito, mensaje = registrar_usuario(
+                nombre=nombre,
+                personaje=nombre_personaje,
+                video_personaje=video_personaje
+            )
 
             if exito:
                 st.success(mensaje)
@@ -509,6 +568,9 @@ def pantalla_registro():
             st.rerun()
 
     with col_video:
+        datos_personaje = PERSONAJES[st.session_state.personaje_registro]
+        video_actual = datos_personaje["video"]
+
         st.markdown(
             """
             <div class="video-card">
@@ -522,7 +584,7 @@ def pantalla_registro():
         st.markdown(
             f"""
             <video autoplay loop muted playsinline>
-                <source src="{VIDEO_PERSONAJE}" type="video/mp4">
+                <source src="{video_actual}" type="video/mp4">
                 Tu navegador no soporta video HTML5.
             </video>
             """,
