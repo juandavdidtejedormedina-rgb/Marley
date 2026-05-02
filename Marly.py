@@ -1,7 +1,7 @@
 import streamlit as st
 
 # ============================================================
-# CONFIGURACIÓN BÁSICA DE LA PÁGINA
+# CONFIGURACIÓN BÁSICA
 # ============================================================
 
 st.set_page_config(
@@ -22,7 +22,7 @@ IMAGEN_PORTADA = (
 )
 
 # ============================================================
-# ESTILOS VISUALES
+# ESTILOS BÁSICOS
 # ============================================================
 
 st.markdown(
@@ -41,66 +41,41 @@ st.markdown(
         max-width: 1250px;
     }
 
-    .login-card {
+    .card {
         background: white;
         border-radius: 36px;
-        padding: 3rem 2rem;
+        padding: 4rem 2rem;
         text-align: center;
         box-shadow: 0 18px 45px rgba(91, 141, 239, 0.14);
         border: 1px solid #e8f5e9;
-        min-height: 520px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
     }
 
-    .logo-circle {
-        width: 90px;
-        height: 90px;
-        border-radius: 50%;
-        background: #d9f99d;
-        margin: 0 auto 1rem auto;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 3rem;
-    }
-
-    .life-title {
+    .titulo {
         font-size: 3.5rem;
         font-weight: 900;
-        margin-bottom: 0.5rem;
-    }
-
-    .life-title .life {
         color: #22c55e;
+        margin-bottom: 0rem;
     }
 
-    .life-title .quest {
+    .titulo span {
         color: #38bdf8;
     }
 
-    .subtitle {
+    .subtitulo {
         color: #16a34a;
         font-size: 1.25rem;
         font-weight: 800;
-        margin-bottom: 2rem;
+        margin-top: 0.5rem;
     }
 
-    .divider {
-        color: #86efac;
-        font-size: 1.4rem;
-        margin-bottom: 2rem;
-    }
-
-    .portada-img {
+    .portada {
         width: 100%;
         max-height: 780px;
         object-fit: contain;
         filter: drop-shadow(0 18px 35px rgba(15, 23, 42, 0.12));
     }
 
-    .cute-note {
+    .frase {
         text-align: center;
         color: #16a34a;
         font-weight: 900;
@@ -114,8 +89,8 @@ st.markdown(
     }
 
     div[data-testid="stButton"] > button {
-        width: 260px;
-        height: 60px;
+        width: 270px;
+        height: 62px;
         border-radius: 999px;
         border: none;
         background: white;
@@ -124,68 +99,42 @@ st.markdown(
         font-weight: 800;
         box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
     }
-
-    div[data-testid="stButton"] > button:hover {
-        background: #f0fdf4;
-        color: #16a34a;
-        transform: translateY(-2px);
-    }
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # ============================================================
-# DISEÑO DE LA PÁGINA PRINCIPAL
+# DISEÑO PRINCIPAL
 # ============================================================
 
 col_izquierda, col_derecha = st.columns([1, 1.15], vertical_alignment="center")
 
-# ============================================================
-# COLUMNA IZQUIERDA: MENÚ DE INICIO
-# ============================================================
-
 with col_izquierda:
     st.markdown(
         """
-        <div class="login-card">
-            <div class="logo-circle">🏁</div>
-
-            <div class="life-title">
-                <span class="life">Life</span><span class="quest">Quest</span>
-            </div>
-
-            <div class="subtitle">
-                Tu juego de hábitos saludables 💗
-            </div>
-
-            <div class="divider">
-                — 🌱 —
-            </div>
+        <div class="card">
+            <div style="font-size: 3rem;">🏁</div>
+            <div class="titulo">Life<span>Quest</span></div>
+            <div class="subtitulo">Tu juego de hábitos saludables 💗</div>
+            <div style="color:#86efac; font-size:1.4rem; margin-top:2rem;">— 🌱 —</div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
+    st.write("")
+
     st.button("👤 INICIAR SESIÓN")
 
     st.markdown(
         """
-        <div class="cute-note">
+        <div class="frase">
             ✨ ¡Pequeños pasos, grandes cambios! ✨
         </div>
         """,
         unsafe_allow_html=True
     )
 
-# ============================================================
-# COLUMNA DERECHA: IMAGEN DEL BÚHO
-# ============================================================
-
 with col_derecha:
-    st.markdown(
-        f"""
-        <img class="portada-img" src="{IMAGEN_PORTADA}">
-        """,
-        unsafe_allow_html=True
-    )
+    st.image(IMAGEN_PORTADA, use_container_width=True)
