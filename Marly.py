@@ -23,6 +23,14 @@ VIDEO_PERSONAJE = "https://raw.githubusercontent.com/juandavdidtejedormedina-rgb
 
 ARCHIVO_USUARIOS = Path("usuarios_lifequest.csv")
 
+COLUMNAS_USUARIOS = [
+    "nombre",
+    "personaje",
+    "nivel",
+    "xp_total",
+    "racha"
+]
+
 
 # ============================================================
 # ESTADO DE SESIÓN
@@ -36,22 +44,74 @@ if "usuario_actual" not in st.session_state:
 
 
 # ============================================================
-# FUNCIONES PARA USUARIOS
+# FUNCIONES DE USUARIOS
 # ============================================================
+
+def crear_tabla_usuarios_vacia():
+    return pd.DataFrame(columns=COLUMNAS_USUARIOS)
+
+
+def normalizar_tabla_usuarios(df):
+    """
+    Esta función evita el KeyError.
+    Si el archivo CSV fue creado con columnas antiguas,
+    lo adapta al formato nuevo.
+    """
+
+    if df.empty:
+        return crear_tabla_usuarios_vacia()
+
+    # Si antes usabas nombre_completo, lo convertimos a nombre
+    if "nombre" not in df.columns and "nombre_completo" in df.columns:
+        df["nombre"] = df["nombre_completo"]
+
+    # Si no existe personaje, creamos personaje por defecto
+    if "personaje" not in df.columns:
+        if "avatar_nombre" in df.columns:
+            df["personaje"] = df["avatar_nombre"]
+        else:
+            df["personaje"] = "Búho aventurero"
+
+    # Crear columnas faltantes
+    if "nivel" not in df.columns:
+        df["nivel"] = 1
+
+    if "xp_total" not in df.columns:
+        df["xp_total"] = 0
+
+    if "racha" not in df.columns:
+        if "racha_global" in df.columns:
+            df["racha"] = df["racha_global"]
+        else:
+            df["racha"] = 0
+
+    # Dejar solo las columnas necesarias
+    df = df[COLUMNAS_USUARIOS]
+
+    # Limpiar datos nulos
+    df["nombre"] = df["nombre"].fillna("").astype(str)
+    df["personaje"] = df["personaje"].fillna("Búho aventurero").astype(str)
+    df["nivel"] = pd.to_numeric(df["nivel"], errors="coerce").fillna(1).astype(int)
+    df["xp_total"] = pd.to_numeric(df["xp_total"], errors="coerce").fillna(0).astype(int)
+    df["racha"] = pd.to_numeric(df["racha"], errors="coerce").fillna(0).astype(int)
+
+    # Eliminar filas sin nombre
+    df = df[df["nombre"].str.strip() != ""]
+
+    return df
+
 
 def cargar_usuarios():
     if ARCHIVO_USUARIOS.exists():
-        return pd.read_csv(ARCHIVO_USUARIOS)
+        try:
+            df = pd.read_csv(ARCHIVO_USUARIOS)
+            df = normalizar_tabla_usuarios(df)
+            guardar_usuarios(df)
+            return df
+        except Exception:
+            return crear_tabla_usuarios_vacia()
 
-    return pd.DataFrame(
-        columns=[
-            "nombre",
-            "personaje",
-            "nivel",
-            "xp_total",
-            "racha"
-        ]
-    )
+    return crear_tabla_usuarios_vacia()
 
 
 def guardar_usuarios(df):
@@ -67,8 +127,9 @@ def registrar_usuario(nombre, personaje):
 
     if not usuarios.empty:
         existe = usuarios["nombre"].str.lower().eq(nombre_limpio.lower()).any()
+
         if existe:
-            return False, "Este usuario ya está registrado."
+            return False, "Este usuario ya está registrado. Puedes iniciar sesión."
 
     nuevo_usuario = pd.DataFrame(
         [
@@ -83,6 +144,7 @@ def registrar_usuario(nombre, personaje):
     )
 
     usuarios = pd.concat([usuarios, nuevo_usuario], ignore_index=True)
+    usuarios = normalizar_tabla_usuarios(usuarios)
     guardar_usuarios(usuarios)
 
     return True, "Usuario registrado correctamente."
@@ -105,7 +167,7 @@ def obtener_usuario(nombre):
 
 
 # ============================================================
-# CSS PARA ESTILO TIERNO TIPO JUEGO
+# ESTILOS CSS
 # ============================================================
 
 st.markdown(
@@ -125,12 +187,6 @@ st.markdown(
         max-width: 1250px;
     }
 
-    .main-wrapper {
-        min-height: 88vh;
-        display: flex;
-        align-items: center;
-    }
-
     .login-card {
         background: rgba(255,255,255,0.95);
         border-radius: 36px;
@@ -138,6 +194,10 @@ st.markdown(
         box-shadow: 0 18px 45px rgba(91, 141, 239, 0.14);
         border: 1px solid #e8f5e9;
         text-align: center;
+        min-height: 580px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
 
     .logo-circle {
@@ -171,23 +231,24 @@ st.markdown(
     }
 
     .subtitle {
-        color: #22a65a;
-        font-size: 1.35rem;
-        font-weight: 700;
-        margin-bottom: 2.2rem;
+        color: #16a34a;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin-bottom: 2rem;
     }
 
     .soft-divider {
         color: #86efac;
         font-size: 1.4rem;
-        margin-bottom: 2rem;
+        margin-bottom: 1.5rem;
     }
 
     .cute-note {
         margin-top: 2rem;
-        color: #22a65a;
-        font-weight: 800;
+        color: #16a34a;
+        font-weight: 900;
         font-size: 1.05rem;
+        text-align: center;
     }
 
     .portada-box {
@@ -199,26 +260,36 @@ st.markdown(
 
     .portada-img {
         width: 100%;
-        max-height: 760px;
+        max-height: 780px;
         object-fit: contain;
         filter: drop-shadow(0 18px 35px rgba(15, 23, 42, 0.12));
+    }
+
+    div[data-testid="stButton"] {
+        display: flex;
+        justify-content: center;
     }
 
     div[data-testid="stButton"] > button {
         border-radius: 999px;
         border: none;
-        min-height: 68px;
-        font-size: 1.25rem;
+        min-height: 66px;
+        font-size: 1.15rem;
         font-weight: 900;
         letter-spacing: 0.5px;
-        width: 100%;
+        width: 72%;
+        max-width: 430px;
         box-shadow: 0 10px 20px rgba(15, 23, 42, 0.10);
         transition: all 0.2s ease;
+        background: white;
+        color: #172554;
     }
 
     div[data-testid="stButton"] > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 14px 26px rgba(15, 23, 42, 0.13);
+        background: #f0fdf4;
+        color: #16a34a;
     }
 
     .register-card {
@@ -283,8 +354,13 @@ st.markdown(
         .life-title {
             font-size: 2.6rem;
         }
+
         .subtitle {
             font-size: 1.05rem;
+        }
+
+        div[data-testid="stButton"] > button {
+            width: 95%;
         }
     }
     </style>
@@ -316,13 +392,13 @@ def pantalla_menu():
             unsafe_allow_html=True
         )
 
-        if st.button("👤 INICIAR SESIÓN"):
+        if st.button("👤 INICIAR SESIÓN", key="btn_ir_login"):
             st.session_state.pantalla = "login"
             st.rerun()
 
-        st.write("")
+        st.markdown('<div style="height: 1.1rem;"></div>', unsafe_allow_html=True)
 
-        if st.button("😊 REGISTRARSE"):
+        if st.button("😊 REGISTRARSE", key="btn_ir_registro"):
             st.session_state.pantalla = "registro"
             st.rerun()
 
@@ -368,17 +444,19 @@ def pantalla_registro():
 
         nombre = st.text_input(
             "Tu nombre",
-            placeholder="Ejemplo: Camila"
+            placeholder="Ejemplo: Camila",
+            key="nombre_registro"
         )
 
         personaje = st.selectbox(
             "Selecciona tu personaje",
-            ["Búho aventurero"]
+            ["Búho aventurero"],
+            key="personaje_registro"
         )
 
-        st.write("")
+        st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
 
-        if st.button("✨ Crear mi cuenta"):
+        if st.button("✨ Crear mi cuenta", key="btn_crear_cuenta"):
             exito, mensaje = registrar_usuario(nombre, personaje)
 
             if exito:
@@ -389,7 +467,9 @@ def pantalla_registro():
             else:
                 st.error(mensaje)
 
-        if st.button("⬅️ Volver al menú"):
+        st.markdown('<div style="height: 0.8rem;"></div>', unsafe_allow_html=True)
+
+        if st.button("⬅️ Volver al menú", key="btn_volver_menu_registro"):
             st.session_state.pantalla = "menu"
             st.rerun()
 
@@ -441,19 +521,22 @@ def pantalla_login():
         )
 
         if usuarios.empty:
-            st.info("Todavía no hay usuarios registrados.")
+            st.info("Todavía no hay usuarios registrados. Primero debes registrarte.")
         else:
             usuario_nombre = st.selectbox(
                 "¿Quién está ingresando?",
-                usuarios["nombre"].tolist()
+                usuarios["nombre"].tolist(),
+                key="usuario_login"
             )
 
-            if st.button("Entrar a LifeQuest"):
+            if st.button("Entrar a LifeQuest", key="btn_entrar_lifequest"):
                 st.session_state.usuario_actual = obtener_usuario(usuario_nombre)
                 st.session_state.pantalla = "bienvenida"
                 st.rerun()
 
-        if st.button("⬅️ Volver"):
+        st.markdown('<div style="height: 1rem;"></div>', unsafe_allow_html=True)
+
+        if st.button("⬅️ Volver", key="btn_volver_menu_login"):
             st.session_state.pantalla = "menu"
             st.rerun()
 
@@ -489,10 +572,12 @@ def pantalla_bienvenida():
         unsafe_allow_html=True
     )
 
+    st.markdown('<div style="height: 2rem;"></div>', unsafe_allow_html=True)
+
     col1, col2, col3 = st.columns([1, 1, 1])
 
     with col2:
-        if st.button("Cerrar sesión"):
+        if st.button("Cerrar sesión", key="btn_cerrar_sesion"):
             st.session_state.usuario_actual = None
             st.session_state.pantalla = "menu"
             st.rerun()
@@ -513,3 +598,7 @@ elif st.session_state.pantalla == "login":
 
 elif st.session_state.pantalla == "bienvenida":
     pantalla_bienvenida()
+
+else:
+    st.session_state.pantalla = "menu"
+    st.rerun()
