@@ -1,1315 +1,196 @@
-from datetime import date
-from pathlib import Path
-import html
-import unicodedata
-
-import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+import pandas as pd
 
-BASE_DIR = Path(__file__).resolve().parent
-LOCAL_EXCEL_PATHS = [
-    BASE_DIR / "Datos Final marley.xlsx",
-    BASE_DIR / "Datos" / "Datos Final marley.xlsx",
+st.set_page_config(page_title="Dashboard RPG de Bienestar", page_icon="⚔️", layout="wide")
+
+# -----------------------------
+# Datos base (puedes reemplazarlos por DB/API)
+# -----------------------------
+user = {
+    "nombre": "Guerrero del Bienestar",
+    "clase": "Explorador de Hábitos",
+    "xp_total": 2880,
+    "xp_nivel_actual": 2880,
+    "xp_siguiente_nivel": 4000,
+    "nivel": 14,
+    "racha_global": 12,
+}
+
+habitos_hoy = [
+    {"habito": "Dormir 6h", "xp": 80, "completado": True, "icono": "😴"},
+    {"habito": "Ejercicio 30 min", "xp": 120, "completado": True, "icono": "🏋️"},
+    {"habito": "2L de agua", "xp": 60, "completado": True, "icono": "💧"},
+    {"habito": "Lectura 20 min", "xp": 70, "completado": True, "icono": "📚"},
+    {"habito": "Alimentación sana", "xp": 90, "completado": True, "icono": "🥗"},
+    {"habito": "Tareas completadas", "xp": 100, "completado": False, "icono": "✅"},
 ]
-REMOTE_EXCEL_URLS = [
-    (
-        "https://raw.githubusercontent.com/"
-        "juandavdidtejedormedina-rgb/Marley/"
-        "4b965708640420750075a41a3d079816c91a3d36/"
-        "Datos%20Final%20marley.xlsx"
-    ),
+
+insignias = [
+    "💧 Hidratado",
+    "🏃 Atleta",
+    "📚 Sabio",
+    "😴 Dormilón",
+    "🔥 Racha 7d",
+    "🥗 Nutritivo",
+    "⚡ Racha 30d",
+    "👑 Maestro",
 ]
-SENSOR_NAMES = ("WIGA", "ECOWITT")
-TIME_BUCKET = "30min"
-SERIES_END_OFFSET = pd.Timedelta(hours=23, minutes=30)
-AXIS_END_OFFSET = pd.Timedelta(hours=23, minutes=59)
-DateRange = tuple[date, date]
 
-BRAND_COLORS = {
-    "hero": "#4C4678",
-    "sky": "#D6E5EC",
-    "rose": "#E7D2DA",
-    "beige": "#D9CDBA",
-    "graphite": "#2D3040",
-    "ink": "#1F2430",
-    "paper": "#F7F4EE",
-    "white": "#FFFFFF",
-}
-
-SHEETS = {
-    "WIGA": ["WIGGA MONTAÑA", "WIGA MARLEY"],
-    "ECOWITT": ["ECOWITT MONTAÑA", "ECOWIT MARLEY"],
-}
-
-VARIABLES = {
-    "Gramos de agua (g)": {
-        "title": "Comparativa de gramos de agua",
-        "unit": "g",
-        "short": "Gramos de agua",
-        "colors": {"WIGA": "#4E8D7C", "ECOWITT": "#5AA6A6"},
-        "accent": "#4E8D7C",
-        "soft": "rgba(78, 141, 124, 0.18)",
-    },
-    "Humedad Relativa (%)": {
-        "title": "Comparativa de humedades",
-        "unit": "%",
-        "short": "Humedad",
-        "colors": {"WIGA": "#5B6275", "ECOWITT": "#6E97F2"},
-        "accent": "#8077AE",
-        "soft": "rgba(128, 119, 174, 0.18)",
-    },
-    "Temperatura (°C)": {
-        "title": "Comparativa de temperaturas",
-        "unit": "°C",
-        "short": "Temperatura",
-        "colors": {"WIGA": "#D39A58", "ECOWITT": "#C06C84"},
-        "accent": "#D39A58",
-        "soft": "rgba(211, 154, 88, 0.18)",
-    },
-    "Radiación PAR (µmol m-2 s-1)": {
-        "title": "Comparativa de radiación PAR",
-        "unit": "µmol m-2 s-1",
-        "short": "PAR",
-        "colors": {"WIGA": "#8CBD63", "ECOWITT": "#524B82"},
-        "accent": "#8CBD63",
-        "soft": "rgba(140, 189, 99, 0.18)",
-    },
-}
-
-CANONICAL_COLUMNS = {
-    "fecha": "Fecha",
-    "hora": "Hora",
-    "fecha hora": "FechaHora",
-    "fechahora": "FechaHora",
-    "tiempo de lectura": "FechaHora",
-    "gramos de agua g": "Gramos de agua (g)",
-    "gramos de agua": "Gramos de agua (g)",
-    "humedad relativa (%)": "Humedad Relativa (%)",
-    "humedad relativa %": "Humedad Relativa (%)",
-    "temperatura (c)": "Temperatura (°C)",
-    "temperatura °c": "Temperatura (°C)",
-    "temperatura c": "Temperatura (°C)",
-    "temperatura montana c": "Temperatura (°C)",
-    "radiacion par (mol m-2 s-1)": "Radiación PAR (µmol m-2 s-1)",
-    "radiacion par (umol m-2 s-1)": "Radiación PAR (µmol m-2 s-1)",
-    "radiacion par umol m-2 s-1": "Radiación PAR (µmol m-2 s-1)",
-    "radiacion par mol m-2 s-1": "Radiación PAR (µmol m-2 s-1)",
-}
-
-
-def configure_page() -> None:
-    st.set_page_config(
-        page_title="Dashboard Marly",
-        page_icon="📈",
-        layout="wide",
-        initial_sidebar_state="collapsed",
-    )
-
-
-def inject_styles() -> None:
-    st.markdown(
-        f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
-
-:root {{
-    --elite-hero: {BRAND_COLORS["hero"]};
-    --elite-sky: {BRAND_COLORS["sky"]};
-    --elite-rose: {BRAND_COLORS["rose"]};
-    --elite-beige: {BRAND_COLORS["beige"]};
-    --elite-graphite: {BRAND_COLORS["graphite"]};
-    --elite-ink: {BRAND_COLORS["ink"]};
-    --elite-paper: {BRAND_COLORS["paper"]};
-    --elite-white: {BRAND_COLORS["white"]};
-    --font-display: 'Manrope', sans-serif;
-    --font-body: 'Manrope', sans-serif;
-    --font-brand: 'Cormorant Garamond', serif;
-}}
-
-.stApp {{
-    background:
-        radial-gradient(circle at 12% 18%, rgba(217, 205, 186, 0.22), transparent 22%),
-        radial-gradient(circle at 88% 10%, rgba(214, 229, 236, 0.34), transparent 28%),
-        linear-gradient(180deg, #fcfaf6 0%, var(--elite-paper) 58%, #f2eee6 100%);
-    color: var(--elite-ink);
-    font-family: var(--font-body);
-}}
-
-[data-testid="stAppViewContainer"] > .main {{
-    padding-top: 1.2rem;
-}}
-
-[data-testid="stAppViewContainer"] > .main .block-container {{
-    max-width: 1180px;
-    padding-left: 1rem;
-    padding-right: 1rem;
-}}
-
-[data-testid="stSidebar"],
-[data-testid="stSidebarCollapsedControl"] {{
-    display: none !important;
-}}
-
-[data-testid="collapsedControl"] {{
-    display: none !important;
-}}
-
-[data-testid="stAppViewContainer"] > .main .block-container {{
-    max-width: 1360px;
-    margin-left: auto;
-    margin-right: auto;
-    padding-left: 1.2rem;
-    padding-right: 1.2rem;
-}}
-
-
-.hero-card {{
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
-    padding: 1.55rem 1.6rem;
-    margin: 0 0 1.3rem 0;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 30px;
-    background:
-        radial-gradient(circle at 18% 18%, rgba(255,255,255,0.16), transparent 18%),
-        linear-gradient(135deg, #5f598f 0%, #4c4678 38%, #2d3040 100%);
-    box-shadow: 0 28px 68px rgba(35, 30, 58, 0.22);
-    overflow: hidden;
-}}
-
-.hero-card::before {{
-    content: "";
-    position: absolute;
-    inset: 1px;
-    border-radius: 29px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    pointer-events: none;
-}}
-
-.hero-kicker {{
-    margin: 0 0 0.45rem 0;
-    color: rgba(255, 244, 238, 0.84);
-    font-family: var(--font-brand);
-    font-size: 1rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 700;
-}}
-
-.hero-card h1 {{
-    margin: 0;
-    color: var(--elite-white);
-    font-family: var(--font-display);
-    font-weight: 800;
-    font-size: 2.35rem;
-    line-height: 1.03;
-    letter-spacing: -0.04em;
-}}
-
-.hero-subtitle {{
-    margin: 0.85rem 0 0 0;
-    max-width: 46rem;
-    color: rgba(255, 255, 255, 0.82);
-    font-size: 1.02rem;
-    line-height: 1.7;
-}}
-
-.summary-grid {{
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.85rem;
-    margin: 0.35rem 0 1.15rem 0;
-}}
-
-.summary-card {{
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    min-height: 164px;
-    padding: 1.05rem 1.05rem 1rem 1.05rem;
-    border-radius: 24px;
-    border: 1px solid rgba(76, 70, 120, 0.10);
-    background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(247,244,238,0.96) 100%);
-    box-shadow: 0 18px 40px rgba(45, 48, 64, 0.09);
-    overflow: hidden;
-}}
-
-.summary-card::before {{
-    content: "";
-    position: absolute;
-    inset: 0 0 auto 0;
-    height: 5px;
-    background: linear-gradient(90deg, var(--summary-accent), var(--summary-accent-soft));
-}}
-
-.summary-card-header {{
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.9rem;
-}}
-
-.summary-card-label {{
-    color: #646874;
-    font-family: var(--font-display);
-    font-size: 0.88rem;
-    font-weight: 700;
-}}
-
-.summary-card-chip {{
-    display: inline-flex;
-    align-items: center;
-    padding: 0.22rem 0.58rem;
-    border-radius: 999px;
-    background: rgba(76, 70, 120, 0.08);
-    color: var(--elite-hero);
-    font-size: 0.75rem;
-    font-weight: 700;
-}}
-
-.summary-card-value {{
-    display: flex;
-    align-items: flex-end;
-    gap: 0.34rem;
-    min-height: 3.1rem;
-}}
-
-.summary-card-number {{
-    color: var(--elite-graphite);
-    font-family: var(--font-display);
-    font-size: 2.16rem;
-    font-weight: 800;
-    line-height: 1;
-    letter-spacing: -0.04em;
-}}
-
-.summary-card-unit {{
-    margin-bottom: 0.3rem;
-    color: #5f6472;
-    font-size: 0.88rem;
-    font-weight: 600;
-}}
-
-.summary-card-footer {{
-    margin-top: auto;
-    padding-top: 0.72rem;
-    color: #757985;
-    font-size: 0.86rem;
-    line-height: 1.55;
-}}
-
-.section-title {{
-    margin: 1.2rem 0 0.75rem 0;
-    color: var(--elite-graphite);
-    font-family: var(--font-display);
-    font-size: 1.16rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-}}
-
-.chart-shell {{
-    padding: 1rem 1rem 0.45rem 1rem;
-    margin-bottom: 1rem;
-    border-radius: 28px;
-    border: 1px solid rgba(76, 70, 120, 0.09);
-    background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(247,244,238,0.96));
-    box-shadow: 0 20px 44px rgba(45, 48, 64, 0.08);
-}}
-
-.chart-title {{
-    margin: 0 0 0.2rem 0;
-    color: var(--elite-graphite);
-    font-family: var(--font-display);
-    font-size: 1.14rem;
-    font-weight: 800;
-}}
-
-.chart-caption {{
-    margin: 0 0 0.95rem 0;
-    color: #6f7380;
-    font-size: 0.92rem;
-    line-height: 1.55;
-}}
-
-.data-shell {{
-    margin-top: 1rem;
-}}
-
-.map-card {{
-    margin: 0.35rem 0 1.25rem 0;
-    padding: 1rem 1rem 0.6rem 1rem;
-    border-radius: 28px;
-    border: 1px solid rgba(76, 70, 120, 0.09);
-    background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(247,244,238,0.96));
-    box-shadow: 0 20px 44px rgba(45, 48, 64, 0.08);
-}}
-
-.map-title {{
-    margin: 0 0 0.2rem 0;
-    color: var(--elite-graphite);
-    font-family: var(--font-display);
-    font-size: 1.06rem;
-    font-weight: 800;
-}}
-
-.map-caption {{
-    margin: 0 0 0.9rem 0;
-    color: #6f7380;
-    font-size: 0.92rem;
-    line-height: 1.55;
-}}
-
-.map-link {{
-    display: inline-flex;
-    align-items: center;
-    margin: 0.2rem 0 0.65rem 0;
-    color: var(--elite-hero);
-    font-weight: 700;
-    text-decoration: none;
-}}
-
-.map-link:hover {{
-    text-decoration: underline;
-}}
-
-
-.selector-shell {{
-    display: flex;
-    align-items: center;
-    gap: 0.8rem;
-    margin: 0.2rem 0 1rem 0;
-    color: var(--elite-graphite);
-    font-family: var(--font-display);
-    font-size: 0.98rem;
-    font-weight: 700;
-}}
-
-[data-testid="stDataFrame"] {{
-    border-radius: 22px;
-    overflow: hidden;
-    border: 1px solid rgba(76, 70, 120, 0.08);
-    box-shadow: 0 18px 36px rgba(45, 48, 64, 0.06);
-}}
-
-@media (max-width: 980px) {{
-    .summary-grid {{
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }}
-
-    .hero-card h1 {{
-        font-size: 1.9rem;
-    }}
-}}
-
-@media (max-width: 640px) {{
-    .summary-grid {{
-        grid-template-columns: 1fr;
-    }}
-
-    .hero-card {{
-        padding: 1.2rem;
-        border-radius: 24px;
-    }}
-}}
-</style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def normalize_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKD", str(text))
-    normalized = normalized.encode("ascii", "ignore").decode("ascii")
-    return " ".join(normalized.lower().split())
-
-
-def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    renamed = {}
-    for column in df.columns:
-        key = normalize_text(column)
-        if key in CANONICAL_COLUMNS:
-            renamed[column] = CANONICAL_COLUMNS[key]
-    return df.rename(columns=renamed)
-
-
-def ensure_expected_columns(df: pd.DataFrame) -> pd.DataFrame:
-    for column in ["Fecha", "Hora", *VARIABLES.keys()]:
-        if column not in df.columns:
-            df[column] = pd.NA
-    return df
-
-
-def coerce_measurement_columns(df: pd.DataFrame) -> pd.DataFrame:
-    for column in VARIABLES:
-        if column in df.columns:
-            df[column] = pd.to_numeric(df[column], errors="coerce")
-    return df
-
-
-def resolve_sheet_name(sheet_names: list[str], aliases: list[str], source_name: str) -> str:
-    for alias in aliases:
-        if alias in sheet_names:
-            return alias
-
-    normalized_lookup = {normalize_text(name): name for name in sheet_names}
-    for alias in aliases:
-        match = normalized_lookup.get(normalize_text(alias))
-        if match:
-            return match
-
-    raise ValueError(
-        f"No se encontró una hoja válida para {source_name}. "
-        f"Hojas disponibles: {', '.join(sheet_names)}"
-    )
-
-
-def load_wiga_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
-    df = pd.read_excel(source, sheet_name=sheet_name)
-    df = standardize_columns(df)
-    df = ensure_expected_columns(df)
-    df = coerce_measurement_columns(df)
-    return df
-
-
-def load_ecowitt_sheet(source: str | Path, sheet_name: str) -> pd.DataFrame:
-    df = pd.read_excel(source, sheet_name=sheet_name)
-    df = standardize_columns(df)
-
-    if "FechaHora" not in df.columns:
-        # Legacy ECOWITT files arrive without stable headers, so we normalize manually.
-        raw = pd.read_excel(source, sheet_name=sheet_name, header=None)
-        raw = raw.iloc[:, :5].copy()
-        if raw.shape[1] >= 5:
-            raw.columns = [
-                "FechaHora",
-                "Gramos de agua (g)",
-                "Humedad Relativa (%)",
-                "Radiación PAR (µmol m-2 s-1)",
-                "Temperatura (°C)",
-            ]
-        else:
-            raw = raw.iloc[:, :4].copy()
-            raw.columns = [
-                "FechaHora",
-                "Humedad Relativa (%)",
-                "Radiación PAR (µmol m-2 s-1)",
-                "Temperatura (°C)",
-            ]
-        df = raw
-
-    df["FechaHora"] = pd.to_datetime(df["FechaHora"], errors="coerce", dayfirst=True)
-    df = ensure_expected_columns(df)
-    df = coerce_measurement_columns(df)
-    df = df.dropna(subset=["FechaHora"])
-    df["Fecha"] = df["FechaHora"].dt.strftime("%Y-%m-%d")
-    df["Hora"] = df["FechaHora"].dt.strftime("%H:%M:%S")
-    return df[["Fecha", "Hora", *VARIABLES.keys()]]
-
-
-def resolve_excel_sources() -> list[str | Path]:
-    sources: list[str | Path] = []
-    for candidate in LOCAL_EXCEL_PATHS:
-        if candidate.exists():
-            sources.append(candidate)
-    sources.extend(REMOTE_EXCEL_URLS)
-    return sources
-
-
-def build_source_signature(excel_source: str | Path) -> str:
-    if isinstance(excel_source, Path):
-        stat = excel_source.stat()
-        return f"{excel_source}|{stat.st_mtime_ns}|{stat.st_size}"
-    return str(excel_source)
-
-
-@st.cache_data(show_spinner="Cargando archivo de datos...")
-def load_data_from_source(excel_source: str | Path, source_signature: str) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    _ = source_signature
-    workbook = pd.ExcelFile(excel_source)
-    source_frames: dict[str, pd.DataFrame] = {}
-
-    for source_name, aliases in SHEETS.items():
-        sheet_name = resolve_sheet_name(workbook.sheet_names, aliases, source_name)
-        if source_name == "WIGA":
-            df = load_wiga_sheet(excel_source, sheet_name)
-        else:
-            df = load_ecowitt_sheet(excel_source, sheet_name)
-        df["FechaHora"] = pd.to_datetime(
-            df["Fecha"].astype(str) + " " + df["Hora"].astype(str),
-            errors="coerce",
-        )
-        df = df.dropna(subset=["FechaHora"]).sort_values("FechaHora")
-
-        columns = ["FechaHora", *VARIABLES.keys()]
-        df = df[columns].copy()
-        for variable in VARIABLES:
-            df.rename(columns={variable: f"{variable} - {source_name}"}, inplace=True)
-        source_frames[source_name] = df
-
-    merged = None
-    for frame in source_frames.values():
-        merged = frame if merged is None else merged.merge(frame, on="FechaHora", how="outer")
-
-    if merged is None:
-        raise ValueError("No fue posible construir la tabla consolidada de sensores.")
-
-    merged = merged.sort_values("FechaHora").reset_index(drop=True)
-    return merged, source_frames
-
-
-def load_data() -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    errors: list[str] = []
-
-    for excel_source in resolve_excel_sources():
-        try:
-            return load_data_from_source(excel_source, build_source_signature(excel_source))
-        except Exception as error:
-            errors.append(f"{excel_source}: {error}")
-
-    raise ValueError("No fue posible cargar ningún archivo de datos.\n" + "\n".join(errors))
-
-
-def build_hero() -> None:
-    st.markdown(
-        """
-        <div class="hero-card">
-            <div>
-                <p class="hero-kicker">Dashboard ambiental</p>
-                <h1>Comparativa visual entre WIGA y ECOWITT en la finca Marly</h1>
-                <p class="hero-subtitle">
-                    Lectura comparativa de gramos de agua, humedad relativa, temperatura y radiación PAR
-                    para detectar diferencias entre ambos equipos a lo largo del tiempo
-                    con un estilo ejecutivo y fácil de leer.
-                </p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def format_number(value: float | int, decimals: int = 1) -> str:
-    return f"{value:,.{decimals}f}".replace(",", "_").replace(".", ",").replace("_", ".")
-
-
-def build_full_time_index(selected_range: DateRange) -> pd.DatetimeIndex:
-    start_date, end_date = selected_range
-    start_ts = pd.Timestamp(start_date)
-    end_ts = pd.Timestamp(end_date)
-    return pd.date_range(
-        start=start_ts,
-        end=end_ts + SERIES_END_OFFSET,
-        freq=TIME_BUCKET,
-    )
-
-
-def date_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, DateRange, date, date]:
-    min_date = df["FechaHora"].min().date()
-    max_date = df["FechaHora"].max().date()
-
-    if "selected_day" not in st.session_state:
-        st.session_state["selected_day"] = max_date
-    else:
-        st.session_state["selected_day"] = min(
-            max(st.session_state["selected_day"], min_date),
-            max_date,
-        )
-
-    start_date = st.session_state["selected_day"]
-    end_date = st.session_state["selected_day"]
-
-    mask = df["FechaHora"].dt.date.between(start_date, end_date)
-    filtered = df.loc[mask].copy()
-    return filtered, (start_date, end_date), min_date, max_date
-
-
-def render_day_navigation(min_date: date, max_date: date) -> None:
-    current_day = st.session_state["selected_day"]
-
-    col1, col2, col3, col4 = st.columns([1, 1.4, 1, 1.3])
-    with col1:
-        if st.button("◀ Día anterior", width="stretch", disabled=current_day <= min_date):
-            new_day = (pd.Timestamp(current_day) - pd.Timedelta(days=1)).date()
-            st.session_state["selected_day"] = new_day
-            st.rerun()
-
-    with col2:
+ranking_habitos = pd.DataFrame(
+    {
+        "Hábito": ["Ejercicio", "Alimentación", "Lectura", "Agua", "Sueño"],
+        "XP": [920, 780, 650, 550, 480],
+    }
+).sort_values("XP", ascending=True)
+
+rachas_activas = [
+    {"h": "Ejercicio", "dias": 12, "mejor": 21},
+    {"h": "Agua", "dias": 9, "mejor": 14},
+    {"h": "Lectura", "dias": 7, "mejor": 7},
+    {"h": "Sueño", "dias": 5, "mejor": 18},
+]
+
+actividad_semana = pd.DataFrame(
+    {
+        "Día": ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Hoy"],
+        "Puntos": [6, 6, 4, 1, 6, 5, 5],
+    }
+)
+
+# -----------------------------
+# Estilos
+# -----------------------------
+st.markdown(
+    """
+    <style>
+    .card {
+        background: #f7f7f7;
+        border: 1px solid #e4e4e4;
+        border-radius: 14px;
+        padding: 1rem;
+        height: 100%;
+    }
+    .title-lg { font-size: 1.35rem; font-weight: 800; }
+    .muted { color: #666; font-size: 0.95rem; }
+    .kpi { text-align: center; }
+    .kpi h2 { margin-bottom: 0; color: #5c4bd8; }
+    .badge {
+        border: 1px solid #d8d8d8;
+        border-radius: 12px;
+        background: #fff;
+        padding: .8rem;
+        text-align:center;
+        font-size: .95rem;
+        min-height: 64px;
+    }
+    .habit-row {
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        border-bottom: 1px solid #ececec;
+        padding: .45rem 0;
+        font-size: .98rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -----------------------------
+# Header perfil
+# -----------------------------
+progress = user["xp_nivel_actual"] / user["xp_siguiente_nivel"]
+col_header = st.container()
+with col_header:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    c1, c2 = st.columns([1, 9])
+    with c1:
+        st.markdown("## ⚔️")
+        st.caption(f"Nv.{user['nivel']}")
+    with c2:
+        st.markdown(f'<div class="title-lg">{user["nombre"]}</div>', unsafe_allow_html=True)
         st.markdown(
-            f"""
-            <div style="text-align:center; padding-top:0.45rem; color:{BRAND_COLORS['graphite']};
-                        font-family:Manrope,sans-serif; font-size:1rem; font-weight:700;">
-                {current_day.strftime('%Y-%m-%d')}
-            </div>
-            """,
+            f'<div class="muted">Clase: {user["clase"]} · Racha activa: {user["racha_global"]} días</div>',
             unsafe_allow_html=True,
         )
+        st.progress(progress, text=f"{user['xp_nivel_actual']} XP  →  {user['xp_siguiente_nivel']} XP")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with col3:
-        if st.button("Día siguiente ▶", width="stretch", disabled=current_day >= max_date):
-            new_day = (pd.Timestamp(current_day) + pd.Timedelta(days=1)).date()
-            st.session_state["selected_day"] = new_day
-            st.rerun()
+# -----------------------------
+# KPIs
+# -----------------------------
+completados = sum(1 for h in habitos_hoy if h["completado"])
+total_habitos = len(habitos_hoy)
 
-    with col4:
-        selected_day = st.date_input(
-            "Seleccionar fecha",
-            value=current_day,
-            min_value=min_date,
-            max_value=max_date,
-            label_visibility="collapsed",
-        )
-        if selected_day != current_day:
-            st.session_state["selected_day"] = selected_day
-            st.rerun()
-
-
-def get_time_axis_config(df: pd.DataFrame) -> dict:
-    min_time = df["FechaHora"].min()
-    max_time = df["FechaHora"].max()
-    span = max_time - min_time
-    total_days = max(span.total_seconds() / 86400, 0)
-
-    if total_days <= 1.1:
-        return {
-            "tickformat": "%H:%M",
-            "dtick": 1 * 60 * 60 * 1000,
-            "title": "Hora del día",
-        }
-    if total_days <= 3:
-        return {
-            "tickformat": "%d/%m\n%H:%M",
-            "dtick": 6 * 60 * 60 * 1000,
-            "title": "Fecha y hora",
-        }
-    if total_days <= 10:
-        return {
-            "tickformat": "%d/%m\n%H:%M",
-            "dtick": 12 * 60 * 60 * 1000,
-            "title": "Fecha y hora",
-        }
-    return {
-        "tickformat": "%d/%m/%Y",
-        "dtick": 24 * 60 * 60 * 1000,
-        "title": "Fecha",
-    }
-
-
-def build_hourly_series(
-    df: pd.DataFrame,
-    column_name: str,
-    selected_range: DateRange,
-) -> pd.DataFrame:
-    source_df = df[["FechaHora", column_name]].dropna(subset=[column_name]).copy()
-    if source_df.empty:
-        return source_df
-
-    source_df["FechaHora"] = source_df["FechaHora"].dt.floor(TIME_BUCKET)
-    source_df = source_df.groupby("FechaHora", as_index=False)[column_name].mean()
-    full_index = build_full_time_index(selected_range)
-    source_df = source_df.set_index("FechaHora").reindex(full_index).rename_axis("FechaHora").reset_index()
-    return source_df
-
-def build_hourly_comparison(df: pd.DataFrame, variable: str, selected_range: DateRange) -> pd.DataFrame:
-    # Build 30-minute averages for both sensors so every comparison uses the same time base.
-    wiga_col = f"{variable} - WIGA"
-    ecowitt_col = f"{variable} - ECOWITT"
-
-    hourly_wiga = build_hourly_series(df, wiga_col, selected_range).rename(columns={wiga_col: "WIGA"})
-    hourly_eco = build_hourly_series(df, ecowitt_col, selected_range).rename(columns={ecowitt_col: "ECOWITT"})
-    comparison = hourly_wiga.merge(hourly_eco, on="FechaHora", how="outer")
-    comparison["DiffPct"] = pd.NA
-    comparison["DiffValue"] = pd.NA
-    comparison["SignedDiff"] = pd.NA
-
-    valid_mask = (
-        comparison["WIGA"].notna()
-        & comparison["ECOWITT"].notna()
-    )
-    comparison.loc[valid_mask, "SignedDiff"] = (
-        comparison.loc[valid_mask, "WIGA"] - comparison.loc[valid_mask, "ECOWITT"]
-    )
-    comparison.loc[valid_mask, "DiffValue"] = comparison.loc[valid_mask, "SignedDiff"].abs()
-
-    pct_base = (
-        comparison.loc[valid_mask, "WIGA"].abs()
-        + comparison.loc[valid_mask, "ECOWITT"].abs()
-    ) / 2
-    valid_pct_index = pct_base[pct_base != 0].index
-    comparison.loc[valid_pct_index, "DiffPct"] = (
-        comparison.loc[valid_pct_index, "DiffValue"]
-        / pct_base.loc[valid_pct_index]
-        * 100
-    )
-    comparison["SignedDiffLabel"] = comparison["SignedDiff"].apply(
-        lambda value: "No disponible"
-        if pd.isna(value)
-        else f"{value:+.2f}"
-    )
-    comparison["DiffValueLabel"] = comparison["DiffValue"].apply(
-        lambda value: "No disponible"
-        if pd.isna(value)
-        else f"{value:.2f}"
-    )
-    comparison["DiffPctLabel"] = comparison["DiffPct"].apply(
-        lambda value: "No disponible"
-        if pd.isna(value)
-        else f"{value:.2f}%"
-    )
-    return comparison
-
-
-def get_available_sources(comparison: pd.DataFrame) -> list[str]:
-    return [source_name for source_name in SENSOR_NAMES if comparison[source_name].notna().any()]
-
-
-def get_y_axis_config(df: pd.DataFrame, variable: str) -> dict:
-    series = []
-    for source_name in SENSOR_NAMES:
-        column_name = f"{variable} - {source_name}"
-        if column_name in df.columns:
-            clean = pd.to_numeric(df[column_name], errors="coerce").dropna()
-            if not clean.empty:
-                series.append(clean)
-
-    if not series:
-        return {"title": VARIABLES[variable]["unit"]}
-
-    values = pd.concat(series, ignore_index=True)
-    vmin = float(values.min())
-    vmax = float(values.max())
-
-    if variable == "Gramos de agua (g)":
-        axis_min = round(max(0, vmin - 0.5), 2)
-        axis_max = round(vmax + 0.5, 2)
-        spread = max(axis_max - axis_min, 0.1)
-        if spread <= 2:
-            dtick = 0.2
-        elif spread <= 5:
-            dtick = 0.5
-        else:
-            dtick = 1
-        return {
-            "title": "Gramos de agua (g)",
-            "range": [axis_min, axis_max],
-            "dtick": dtick,
-        }
-
-    if variable == "Humedad Relativa (%)":
-        axis_min = max(0, min(100, (int(vmin // 5) * 5) - 5))
-        axis_max = min(100, (int(vmax // 5) * 5) + 5)
-        if axis_max <= axis_min:
-            axis_max = min(100, axis_min + 5)
-        return {
-            "title": "Humedad relativa (%)",
-            "range": [axis_min, axis_max],
-            "dtick": 5,
-            "ticksuffix": "%",
-        }
-
-    if variable == "Temperatura (°C)":
-        axis_min = round(vmin - 1.5, 1)
-        axis_max = round(vmax + 1.5, 1)
-        return {
-            "title": "Temperatura (°C)",
-            "range": [axis_min, axis_max],
-            "dtick": 2,
-        }
-
-    axis_min = max(0, int(vmin * 0.95))
-    axis_max = int(vmax * 1.05) if vmax > 0 else 10
-    spread = max(axis_max - axis_min, 1)
-    if spread <= 100:
-        dtick = 10
-    elif spread <= 300:
-        dtick = 25
-    elif spread <= 800:
-        dtick = 50
-    else:
-        dtick = 100
-    return {
-        "title": "Radiación PAR (µmol m-2 s-1)",
-        "range": [-25, axis_max],
-        "dtick": dtick,
-    }
-
-
-def make_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure:
-    config = VARIABLES[variable]
-    fig = go.Figure()
-    time_axis = get_time_axis_config(comparison)
-    y_axis = get_y_axis_config(comparison.rename(columns={name: f"{variable} - {name}" for name in SENSOR_NAMES}), variable)
-    start_date, end_date = selected_range
-
-    for source_name in SENSOR_NAMES:
-        source_df = comparison[
-            ["FechaHora", source_name, "SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]
-        ].copy()
-        if source_df[source_name].dropna().empty:
-            continue
-
-        fig.add_trace(
-            go.Scatter(
-                x=source_df["FechaHora"],
-                y=source_df[source_name],
-                name=source_name,
-                mode="lines+markers",
-                line=dict(color=config["colors"][source_name], width=3),
-                marker=dict(size=6),
-                connectgaps=False,
-                customdata=source_df[["SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]],
-                hovertemplate=(
-                    "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
-                    + f"{source_name}: "
-                    + "%{y:.2f} "
-                    + config["unit"]
-                    + (
-                        "<br>Diferencia WIGA - ECOWITT: %{customdata[0]} "
-                        + config["unit"]
-                        + "<br>Diferencia absoluta: %{customdata[1]} "
-                        + config["unit"]
-                        + "<br>Diferencia % sobre promedio: %{customdata[2]}"
-                        if source_name == SENSOR_NAMES[0]
-                        else ""
-                    )
-                    + "<extra></extra>"
-                ),
-            )
-        )
-
-    fig.update_layout(
-        title=dict(
-            text=config["title"],
-            x=0,
-            xanchor="left",
-            font=dict(size=21, color=BRAND_COLORS["graphite"], family="Manrope, sans-serif"),
-        ),
-        height=470,
-        margin=dict(l=28, r=28, t=74, b=28),
-        paper_bgcolor="rgba(255,255,255,0)",
-        plot_bgcolor="rgba(250,248,243,0.72)",
-        hovermode="x unified",
-        template="plotly_white",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(255,255,255,0.72)",
-            bordercolor="rgba(76, 70, 120, 0.08)",
-            borderwidth=1,
-            font=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        xaxis=dict(
-            title=time_axis["title"],
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            tickformat=time_axis["tickformat"],
-            dtick=time_axis["dtick"],
-            tickangle=0,
-            ticklabelmode="period",
-            range=(
-                [pd.Timestamp(start_date), pd.Timestamp(start_date) + AXIS_END_OFFSET]
-                if start_date == end_date
-                else [pd.Timestamp(start_date), pd.Timestamp(end_date) + AXIS_END_OFFSET]
-            ),
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        yaxis=dict(
-            title=y_axis["title"],
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            range=y_axis.get("range"),
-            dtick=y_axis.get("dtick"),
-            ticksuffix=y_axis.get("ticksuffix", ""),
-            separatethousands=True,
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        hoverlabel=dict(
-            bgcolor="rgba(249, 246, 240, 0.98)",
-            bordercolor="rgba(76, 70, 120, 0.16)",
-            font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"], size=12),
-        ),
-    )
-
-    return fig
-
-
-def make_difference_chart(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> go.Figure | None:
-    diff_df = comparison[["FechaHora", "SignedDiff"]].dropna().copy()
-    if diff_df.empty:
-        return None
-
-    config = VARIABLES[variable]
-    start_date, end_date = selected_range
-    time_axis = get_time_axis_config(comparison)
-    max_abs_diff = float(diff_df["SignedDiff"].abs().max())
-    axis_limit = max(round(max_abs_diff * 1.15, 2), 0.5)
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=diff_df["FechaHora"],
-            y=diff_df["SignedDiff"],
-            name="WIGA - ECOWITT",
-            mode="lines+markers",
-            line=dict(color=config["accent"], width=3),
-            marker=dict(size=6),
-            hovertemplate=(
-                "<b>%{x|%Y-%m-%d %H:%M}</b><br>"
-                + "Diferencia: %{y:+.2f} "
-                + config["unit"]
-                + "<extra></extra>"
-            ),
-        )
-    )
-    fig.add_hline(y=0, line_width=1.4, line_dash="dash", line_color="rgba(45, 48, 64, 0.45)")
-    fig.update_layout(
-        title=dict(
-            text="Diferencia entre sensores por bloque de 30 minutos",
-            x=0,
-            xanchor="left",
-            font=dict(size=20, color=BRAND_COLORS["graphite"], family="Manrope, sans-serif"),
-        ),
-        height=360,
-        margin=dict(l=28, r=28, t=72, b=28),
-        paper_bgcolor="rgba(255,255,255,0)",
-        plot_bgcolor="rgba(250,248,243,0.72)",
-        template="plotly_white",
-        xaxis=dict(
-            title=time_axis["title"],
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            tickformat=time_axis["tickformat"],
-            dtick=time_axis["dtick"],
-            range=(
-                [pd.Timestamp(start_date), pd.Timestamp(start_date) + AXIS_END_OFFSET]
-                if start_date == end_date
-                else [pd.Timestamp(start_date), pd.Timestamp(end_date) + AXIS_END_OFFSET]
-            ),
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        yaxis=dict(
-            title=f"Diferencia ({config['unit']})",
-            range=[-axis_limit, axis_limit],
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        hoverlabel=dict(
-            bgcolor="rgba(249, 246, 240, 0.98)",
-            bordercolor="rgba(76, 70, 120, 0.16)",
-            font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"], size=12),
-        ),
-    )
-    return fig
-
-
-def make_scatter_comparison(comparison: pd.DataFrame, variable: str) -> go.Figure | None:
-    hourly = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
-    if hourly.empty:
-        return None
-
-    config = VARIABLES[variable]
-    fig = go.Figure()
-
-    fig.add_trace(
-        go.Scatter(
-            x=hourly["WIGA"],
-            y=hourly["ECOWITT"],
-            mode="markers",
-            name="Comparación",
-            marker=dict(
-                size=9,
-                color="#6E97F2",
-                opacity=0.78,
-                line=dict(color="rgba(255,255,255,0.75)", width=1),
-            ),
-            customdata=hourly[["FechaHora", "SignedDiffLabel", "DiffValueLabel", "DiffPctLabel"]],
-            hovertemplate=(
-                "<b>%{customdata[0]|%Y-%m-%d %H:%M}</b><br>"
-                + "WIGA: %{x:.2f} " + config["unit"]
-                + "<br>ECOWITT: %{y:.2f} " + config["unit"]
-                + "<br>Diferencia WIGA - ECOWITT: %{customdata[1]} " + config["unit"]
-                + "<br>Diferencia absoluta: %{customdata[2]} " + config["unit"]
-                + "<br>Diferencia % sobre promedio: %{customdata[3]}"
-                + "<extra></extra>"
-            ),
-        )
-    )
-
-    combined = pd.concat([hourly["WIGA"], hourly["ECOWITT"]], ignore_index=True)
-    min_val = float(combined.min())
-    max_val = float(combined.max())
-    padding = (max_val - min_val) * 0.08 if max_val > min_val else 1.0
-    axis_min = min_val - padding
-    axis_max = max_val + padding
-
-    fig.add_trace(
-        go.Scatter(
-            x=[axis_min, axis_max],
-            y=[axis_min, axis_max],
-            mode="lines",
-            name="Referencia y = x",
-            line=dict(color="#D39A58", width=2, dash="dash"),
-            hoverinfo="skip",
-        )
-    )
-
-    fig.update_layout(
-        title=dict(
-            text="Dispersión entre sensores",
-            x=0,
-            xanchor="left",
-            font=dict(size=20, color=BRAND_COLORS["graphite"], family="Manrope, sans-serif"),
-        ),
-        height=430,
-        margin=dict(l=28, r=28, t=72, b=28),
-        paper_bgcolor="rgba(255,255,255,0)",
-        plot_bgcolor="rgba(250,248,243,0.72)",
-        template="plotly_white",
-        font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(255,255,255,0.72)",
-            bordercolor="rgba(76, 70, 120, 0.08)",
-            borderwidth=1,
-            font=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        xaxis=dict(
-            title=f"WIGA ({config['unit']})",
-            range=[axis_min, axis_max],
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        yaxis=dict(
-            title=f"ECOWITT ({config['unit']})",
-            range=[axis_min, axis_max],
-            scaleanchor="x",
-            scaleratio=1,
-            showgrid=True,
-            gridcolor="rgba(76, 70, 120, 0.07)",
-            zeroline=False,
-            tickfont=dict(size=11, family="Manrope, sans-serif", color=BRAND_COLORS["graphite"]),
-        ),
-        hoverlabel=dict(
-            bgcolor="rgba(249, 246, 240, 0.98)",
-            bordercolor="rgba(76, 70, 120, 0.16)",
-            font=dict(family="Manrope, sans-serif", color=BRAND_COLORS["graphite"], size=12),
-        ),
-    )
-
-    return fig
-
-
-def get_difference_stats(comparison: pd.DataFrame) -> dict:
-    valid_diff = pd.to_numeric(comparison["DiffValue"], errors="coerce").dropna()
-
-    if valid_diff.empty:
-        return {"std_diff": None, "count": 0}
-
-    std_diff = valid_diff.std()
-    return {
-        "std_diff": None if pd.isna(std_diff) else float(std_diff),
-        "count": int(valid_diff.count()),
-    }
-
-
-def render_stats_block(comparison: pd.DataFrame, variable: str) -> None:
-    config = VARIABLES[variable]
-    stats = get_difference_stats(comparison)
-    std_diff = stats["std_diff"]
-    count_value = stats["count"]
-
+k1, k2, k3 = st.columns(3)
+with k1:
     st.markdown(
-        """
-        <div class="chart-shell">
-            <p class="chart-title">Desviación estándar de la diferencia</p>
-            <p class="chart-caption">
-                La desviación estándar de la diferencia indica qué tan variable es la separación entre ambos sensores a lo largo del tiempo. Un valor bajo sugiere una diferencia constante, mientras que un valor alto indica que la diferencia fluctúa más entre bloques de 30 minutos.
-            </p>
-        </div>
-        """,
+        f'<div class="card kpi"><h2>{user["xp_total"]:,}</h2><div class="muted">XP total</div></div>'.replace(",", "."),
+        unsafe_allow_html=True,
+    )
+with k2:
+    st.markdown(
+        f'<div class="card kpi"><h2>{completados}/{total_habitos}</h2><div class="muted">Hoy completo</div></div>',
+        unsafe_allow_html=True,
+    )
+with k3:
+    st.markdown(
+        f'<div class="card kpi"><h2>🔥 {user["racha_global"]}</h2><div class="muted">Días de racha</div></div>',
         unsafe_allow_html=True,
     )
 
-    col1, col2 = st.columns([1.2, 1])
-    with col1:
-        st.metric(
-            "Desviación estándar de la diferencia",
-            (
-                f"{format_number(std_diff, 2)} {config['unit']}"
-                if std_diff is not None
-                else "Sin datos"
-            ),
-            help="Se calcula con la diferencia WIGA - ECOWITT en cada bloque de 30 minutos y luego se obtiene su desviación estándar.",
-        )
-    with col2:
-        st.caption(f"Registros comparados: {count_value}")
+# -----------------------------
+# Bloque central
+# -----------------------------
+left, right = st.columns([1, 1])
 
-
-def render_chart_block(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
-    config = VARIABLES[variable]
-    available_sources = get_available_sources(comparison)
-
-    if not available_sources:
+with left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("HÁBITOS DE HOY")
+    for h in habitos_hoy:
+        chk = "✅" if h["completado"] else "⬜"
         st.markdown(
-            f"""
-            <div class="chart-shell">
-                <p class="chart-title">{html.escape(config['title'])}</p>
-                <p class="chart-caption">
-                    No hay datos disponibles para esta variable en el rango seleccionado.
-                </p>
-            </div>
-            """,
+            f'<div class="habit-row"><span>{chk} {h["icono"]} {h["habito"]}</span><strong>+{h["xp"]} XP</strong></div>',
             unsafe_allow_html=True,
         )
-        return
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    overlap = comparison.dropna(subset=list(SENSOR_NAMES)).copy()
-    diff_text = "Sin traslape suficiente para calcular diferencias promedio."
-    if not overlap.empty:
-        avg_diff = overlap["DiffValue"].mean()
-        avg_signed_diff = overlap["SignedDiff"].mean()
-        avg_pct = overlap["DiffPct"].mean()
-        diff_text = (
-            f"Promedio por bloque de 30 minutos. "
-            f"Diferencia absoluta media: {format_number(avg_diff, 2)} {config['unit']}. "
-            f"Diferencia media WIGA - ECOWITT: {format_number(avg_signed_diff, 2)} {config['unit']}. "
-            f"Diferencia porcentual media sobre el promedio de ambos sensores: {format_number(avg_pct, 2)}%."
+with right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("INSIGNIAS")
+    cols = st.columns(4)
+    for i, badge in enumerate(insignias):
+        with cols[i % 4]:
+            st.markdown(f'<div class="badge">{badge}</div>', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -----------------------------
+# Ranking + rachas
+# -----------------------------
+r1, r2 = st.columns([1, 1])
+
+with r1:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("RANKING DE HÁBITOS")
+    st.bar_chart(ranking_habitos, x="Hábito", y="XP", horizontal=True, color="#5c4bd8")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with r2:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("RACHAS ACTIVAS")
+    for r in rachas_activas:
+        st.markdown(
+            f"🔥 **{r['h']}** — **{r['dias']} días**  \\nMejor: {r['mejor']}d"
         )
-    elif len(available_sources) == 1:
-        diff_text = f"Solo hay datos disponibles para {available_sources[0]} en este rango."
+        st.divider()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    render_stats_block(comparison, variable)
-    st.caption(diff_text)
-    st.plotly_chart(make_chart(comparison, variable, selected_range), width="stretch")
+# -----------------------------
+# Actividad semanal
+# -----------------------------
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.subheader("ACTIVIDAD DE LA SEMANA")
+st.line_chart(actividad_semana, x="Día", y="Puntos", color="#5c4bd8")
+st.markdown("</div>", unsafe_allow_html=True)
 
-
-def render_scatter_block(comparison: pd.DataFrame, variable: str) -> None:
-    fig = make_scatter_comparison(comparison, variable)
-    if fig is None:
-        st.info("No hay suficientes datos simultáneos entre WIGA y ECOWITT para construir la dispersión.")
-        return
-
-    st.markdown(
-        """
-        <div class="chart-shell">
-            <p class="chart-title">Comparación directa entre sensores</p>
-            <p class="chart-caption">
-                En esta gráfica de dispersión, cada punto representa una medición simultánea de ambos sensores: WIGA en el eje X y ECOWITT en el eje Y. La línea diagonal (y = x) representa una concordancia perfecta entre ambos sensores.
-            </p>
-            <p class="chart-caption">
-                Los puntos cercanos a esta línea indican una alta concordancia en las mediciones. Cuando un punto se ubica por encima de la línea, el sensor ECOWITT registra valores mayores que WIGA; mientras que si se ubica por debajo, WIGA registra valores superiores a ECOWITT. La dispersión de los puntos respecto a la línea permite evaluar la consistencia y diferencias entre ambos dispositivos.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.plotly_chart(fig, width="stretch")
-
-
-def render_difference_block(comparison: pd.DataFrame, variable: str, selected_range: DateRange) -> None:
-    fig = make_difference_chart(comparison, variable, selected_range)
-    if fig is None:
-        return
-
-    st.markdown(
-        """
-        <div class="chart-shell">
-            <p class="chart-title">Evolución de la diferencia</p>
-            <p class="chart-caption">
-                Esta serie muestra la diferencia firmada WIGA - ECOWITT en cada bloque de 30 minutos. Valores positivos indican que WIGA quedó por encima de ECOWITT; valores negativos indican lo contrario.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.plotly_chart(fig, width="stretch")
-
-
-def build_detail_table(df: pd.DataFrame) -> pd.DataFrame:
-    table = df.copy()
-    table["FechaHora"] = table["FechaHora"].dt.strftime("%Y-%m-%d %H:%M:%S")
-    return table
-
-
-def build_summary_table(source_data: dict[str, pd.DataFrame], selected_range: DateRange) -> pd.DataFrame:
-    summary_rows = []
-    for source_name, source_df in source_data.items():
-        current = source_df[source_df["FechaHora"].dt.date.between(*selected_range)].copy()
-        summary_rows.append(
-            {
-                "Equipo": source_name,
-                "Registros": len(current),
-                "Inicio": current["FechaHora"].min().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
-                "Fin": current["FechaHora"].max().strftime("%Y-%m-%d %H:%M") if not current.empty else "-",
-            }
-        )
-    return pd.DataFrame(summary_rows)
-
-
-def main() -> None:
-    configure_page()
-    inject_styles()
-    build_hero()
-
-    try:
-        comparative_df, source_data = load_data()
-    except Exception as error:
-        st.error(f"No fue posible cargar el archivo de Excel. Detalle: {error}")
-        st.stop()
-
-    filtered_df, selected_range, min_date, max_date = date_filter(comparative_df)
-
-    if filtered_df.empty:
-        st.warning("No hay datos disponibles para el rango seleccionado.")
-        st.stop()
-
-    st.markdown('<div class="section-title">Series comparativas</div>', unsafe_allow_html=True)
-    render_day_navigation(min_date, max_date)
-    st.markdown(
-        '<div class="selector-shell">Selecciona la variable que quieres analizar. Todas las gráficas usan promedios por bloque de 30 minutos.</div>',
-        unsafe_allow_html=True,
-    )
-    selected_variable = st.segmented_control(
-        "Variable",
-        options=list(VARIABLES.keys()),
-        format_func=lambda x: VARIABLES[x]["title"].replace("Comparativa de ", "").capitalize(),
-        default=list(VARIABLES.keys())[0],
-        label_visibility="collapsed",
-    )
-    comparison = build_hourly_comparison(filtered_df, selected_variable, selected_range)
-    render_chart_block(comparison, selected_variable, selected_range)
-    render_difference_block(comparison, selected_variable, selected_range)
-    render_scatter_block(comparison, selected_variable)
-
-    with st.expander("Ver registros y resumen", expanded=False):
-        st.markdown('<div class="data-shell"></div>', unsafe_allow_html=True)
-        tab_data, tab_resume = st.tabs(["Tabla completa", "Resumen por equipo"])
-
-        with tab_data:
-            st.dataframe(build_detail_table(filtered_df), width="stretch", hide_index=True)
-
-        with tab_resume:
-            st.dataframe(build_summary_table(source_data, selected_range), width="stretch", hide_index=True)
-
-
-if __name__ == "__main__":
-    main()
+st.caption("Tip: reemplaza estos datos mock por tus datos reales desde una base de datos o API.")
