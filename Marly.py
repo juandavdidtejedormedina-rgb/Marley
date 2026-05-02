@@ -64,6 +64,9 @@ if "pantalla" not in st.session_state:
 if "usuario_actual" not in st.session_state:
     st.session_state.usuario_actual = None
 
+if "personaje_actual" not in st.session_state:
+    st.session_state.personaje_actual = "🦉 Búho aventurero"
+
 
 # ============================================================
 # FUNCIONES DE USUARIOS
@@ -74,10 +77,6 @@ def crear_tabla_usuarios_vacia():
 
 
 def normalizar_tabla_usuarios(df):
-    """
-    Corrige el archivo usuarios_lifequest.csv si viene de una versión anterior.
-    """
-
     if df.empty:
         return crear_tabla_usuarios_vacia()
 
@@ -85,10 +84,7 @@ def normalizar_tabla_usuarios(df):
         df["nombre"] = df["nombre_completo"]
 
     if "personaje" not in df.columns:
-        if "avatar_nombre" in df.columns:
-            df["personaje"] = df["avatar_nombre"]
-        else:
-            df["personaje"] = "Búho aventurero"
+        df["personaje"] = "Búho aventurero"
 
     if "video_personaje" not in df.columns:
         df["video_personaje"] = PERSONAJES["🦉 Búho aventurero"]["video"]
@@ -100,10 +96,7 @@ def normalizar_tabla_usuarios(df):
         df["xp_total"] = 0
 
     if "racha" not in df.columns:
-        if "racha_global" in df.columns:
-            df["racha"] = df["racha_global"]
-        else:
-            df["racha"] = 0
+        df["racha"] = 0
 
     df = df[COLUMNAS_USUARIOS]
 
@@ -183,6 +176,10 @@ def obtener_usuario(nombre):
         return None
 
     return usuario.iloc[0].to_dict()
+
+
+def actualizar_personaje():
+    st.session_state.personaje_actual = st.session_state.selector_personaje
 
 
 # ============================================================
@@ -525,11 +522,15 @@ def pantalla_registro():
 
         personaje_seleccionado = st.selectbox(
             "Selecciona tu personaje",
-            list(PERSONAJES.keys()),
-            key="personaje_registro"
+            options=list(PERSONAJES.keys()),
+            key="selector_personaje",
+            on_change=actualizar_personaje
         )
 
-        datos_personaje = PERSONAJES[personaje_seleccionado]
+        # Esto garantiza que el video corresponda al personaje actual.
+        personaje_actual = st.session_state.personaje_actual
+        datos_personaje = PERSONAJES[personaje_actual]
+
         nombre_personaje = datos_personaje["nombre"]
         video_personaje = datos_personaje["video"]
         descripcion_personaje = datos_personaje["descripcion"]
@@ -537,7 +538,7 @@ def pantalla_registro():
         st.markdown(
             f"""
             <div class="personaje-info">
-                <h3>{personaje_seleccionado}</h3>
+                <h3>{personaje_actual}</h3>
                 <p>{descripcion_personaje}</p>
             </div>
             """,
@@ -568,8 +569,12 @@ def pantalla_registro():
             st.rerun()
 
     with col_video:
-        datos_personaje = PERSONAJES[st.session_state.personaje_registro]
+        personaje_actual = st.session_state.personaje_actual
+        datos_personaje = PERSONAJES[personaje_actual]
         video_actual = datos_personaje["video"]
+
+        # El parámetro ?personaje=... obliga al navegador a recargar el video.
+        video_actual_cache_buster = f"{video_actual}?personaje={personaje_actual}"
 
         st.markdown(
             """
@@ -583,8 +588,8 @@ def pantalla_registro():
 
         st.markdown(
             f"""
-            <video autoplay loop muted playsinline>
-                <source src="{video_actual}" type="video/mp4">
+            <video autoplay loop muted playsinline controls>
+                <source src="{video_actual_cache_buster}" type="video/mp4">
                 Tu navegador no soporta video HTML5.
             </video>
             """,
