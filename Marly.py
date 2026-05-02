@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
+from urllib.parse import quote
+import streamlit.components.v1 as components
 
 # ============================================================
 # CONFIGURACIÓN GENERAL
@@ -63,9 +65,6 @@ if "pantalla" not in st.session_state:
 
 if "usuario_actual" not in st.session_state:
     st.session_state.usuario_actual = None
-
-if "personaje_actual" not in st.session_state:
-    st.session_state.personaje_actual = "🦉 Búho aventurero"
 
 
 # ============================================================
@@ -138,7 +137,6 @@ def registrar_usuario(nombre, personaje, video_personaje):
 
     if not usuarios.empty:
         existe = usuarios["nombre"].str.lower().eq(nombre_limpio.lower()).any()
-
         if existe:
             return False, "Este usuario ya está registrado. Puedes iniciar sesión."
 
@@ -178,12 +176,8 @@ def obtener_usuario(nombre):
     return usuario.iloc[0].to_dict()
 
 
-def actualizar_personaje():
-    st.session_state.personaje_actual = st.session_state.selector_personaje
-
-
 # ============================================================
-# ESTILOS CSS
+# CSS
 # ============================================================
 
 st.markdown(
@@ -307,11 +301,6 @@ st.markdown(
         transition: all 0.2s ease !important;
     }
 
-    .menu-button-wrapper div[data-testid="stButton"] > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16) !important;
-    }
-
     .login-btn div[data-testid="stButton"] > button {
         background: linear-gradient(135deg, #86efac, #22c55e) !important;
         color: white !important;
@@ -379,12 +368,21 @@ st.markdown(
         margin-bottom: 0;
     }
 
-    .video-card {
-        background: white;
-        border-radius: 30px;
-        padding: 1rem;
+    .video-title-card {
+        background: rgba(255,255,255,0.97);
+        border-radius: 34px;
+        padding: 2rem;
+        box-shadow: 0 18px 45px rgba(91, 141, 239, 0.14);
         border: 1px solid #dcfce7;
-        box-shadow: 0 12px 30px rgba(34, 197, 94, 0.10);
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+
+    .video-title-card h2 {
+        color: #22c55e;
+        font-size: 2rem;
+        font-weight: 900;
+        margin: 0;
     }
 
     .welcome-card {
@@ -407,13 +405,6 @@ st.markdown(
         font-size: 1.2rem;
     }
 
-    video {
-        border-radius: 24px !important;
-        width: 100% !important;
-        max-height: 560px !important;
-        object-fit: cover !important;
-    }
-
     @media (max-width: 900px) {
         .life-title {
             font-size: 2.6rem;
@@ -432,6 +423,48 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# VIDEO HTML EN BUCLE
+# ============================================================
+
+def mostrar_video_personaje(video_url, personaje_key):
+    """
+    Muestra el video del personaje y fuerza recarga cuando cambia el personaje.
+    """
+
+    video_url_forzado = f"{video_url}?reload={quote(personaje_key)}"
+
+    html_video = f"""
+    <div style="
+        background:white;
+        border-radius:30px;
+        padding:14px;
+        border:1px solid #dcfce7;
+        box-shadow:0 12px 30px rgba(34,197,94,0.10);
+    ">
+        <video 
+            key="{quote(personaje_key)}"
+            autoplay 
+            loop 
+            muted 
+            playsinline 
+            controls
+            style="
+                width:100%;
+                height:430px;
+                object-fit:cover;
+                border-radius:24px;
+                display:block;
+            "
+        >
+            <source src="{video_url_forzado}" type="video/mp4">
+        </video>
+    </div>
+    """
+
+    components.html(html_video, height=470, scrolling=False)
 
 
 # ============================================================
@@ -523,13 +556,10 @@ def pantalla_registro():
         personaje_seleccionado = st.selectbox(
             "Selecciona tu personaje",
             options=list(PERSONAJES.keys()),
-            key="selector_personaje",
-            on_change=actualizar_personaje
+            key="selector_personaje"
         )
 
-        # Esto garantiza que el video corresponda al personaje actual.
-        personaje_actual = st.session_state.personaje_actual
-        datos_personaje = PERSONAJES[personaje_actual]
+        datos_personaje = PERSONAJES[personaje_seleccionado]
 
         nombre_personaje = datos_personaje["nombre"]
         video_personaje = datos_personaje["video"]
@@ -538,7 +568,7 @@ def pantalla_registro():
         st.markdown(
             f"""
             <div class="personaje-info">
-                <h3>{personaje_actual}</h3>
+                <h3>{personaje_seleccionado}</h3>
                 <p>{descripcion_personaje}</p>
             </div>
             """,
@@ -569,38 +599,23 @@ def pantalla_registro():
             st.rerun()
 
     with col_video:
-        personaje_actual = st.session_state.personaje_actual
-        datos_personaje = PERSONAJES[personaje_actual]
-        video_actual = datos_personaje["video"]
-
-        # El parámetro ?personaje=... obliga al navegador a recargar el video.
-        video_actual_cache_buster = f"{video_actual}?personaje={personaje_actual}"
-
         st.markdown(
             """
-            <div class="video-card">
-                <h3 style="text-align:center; color:#22c55e; margin-bottom:1rem;">
-                    Vista previa del personaje
-                </h3>
+            <div class="video-title-card">
+                <h2>Vista previa del personaje</h2>
+            </div>
             """,
             unsafe_allow_html=True
         )
 
-        st.markdown(
-            f"""
-            <video autoplay loop muted playsinline controls>
-                <source src="{video_actual_cache_buster}" type="video/mp4">
-                Tu navegador no soporta video HTML5.
-            </video>
-            """,
-            unsafe_allow_html=True
+        mostrar_video_personaje(
+            video_url=video_personaje,
+            personaje_key=personaje_seleccionado
         )
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============================================================
-# PANTALLA 3: INICIAR SESIÓN
+# PANTALLA 3: LOGIN
 # ============================================================
 
 def pantalla_login():
@@ -643,7 +658,7 @@ def pantalla_login():
 
 
 # ============================================================
-# PANTALLA 4: BIENVENIDA TEMPORAL
+# PANTALLA 4: BIENVENIDA
 # ============================================================
 
 def pantalla_bienvenida():
