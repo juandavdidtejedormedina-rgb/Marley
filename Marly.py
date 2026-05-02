@@ -1,17 +1,15 @@
 import streamlit as st
 
-# ============================================================
 # 1. CONSTANTES DE LA APLICACIÓN
-# ============================================================
 
 TITULO_PAGINA = "LifeQuest"
 ICONO_PAGINA = "🦉"
 LAYOUT_PAGINA = "wide"
 
 NOMBRE_APP = "LifeQuest"
-SUBTITULO_APP = "Tu juego de hábitos saludables 💗"
-FRASE_MOTIVACIONAL = "✨ ¡Pequeños pasos, grandes cambios! ✨"
-TEXTO_BOTON_INICIO = "👤 INICIAR SESIÓN"
+SUBTITULO_APP = "Tu juego de hábitos saludables"
+FRASE_MOTIVACIONAL = " ¡Pequeños pasos, grandes cambios! "
+TEXTO_BOTON_INICIO = " INICIAR SESIÓN"
 
 IMAGEN_PORTADA = (
     "https://raw.githubusercontent.com/"
@@ -21,9 +19,7 @@ IMAGEN_PORTADA = (
 )
 
 
-# ============================================================
 # 2. CONFIGURACIÓN DE LA PÁGINA
-# ============================================================
 
 def configurar_pagina():
     """
@@ -37,9 +33,8 @@ def configurar_pagina():
     )
 
 
-# ============================================================
 # 3. ESTILOS VISUALES
-# ============================================================
+
 
 def aplicar_estilos():
     """
@@ -97,10 +92,7 @@ def aplicar_estilos():
         unsafe_allow_html=True
     )
 
-
-# ============================================================
 # 4. COMPONENTES VISUALES
-# ============================================================
 
 def mostrar_tarjeta_inicio():
     """
@@ -178,9 +170,7 @@ def mostrar_imagen_portada():
     )
 
 
-# ============================================================
 # 5. PANTALLA PRINCIPAL
-# ============================================================
 
 def mostrar_pantalla_inicio():
     """
@@ -201,10 +191,7 @@ def mostrar_pantalla_inicio():
     with col_derecha:
         mostrar_imagen_portada()
 
-
-# ============================================================
 # 6. FUNCIÓN PRINCIPAL
-# ============================================================
 
 def ejecutar_app():
     """
@@ -215,9 +202,6 @@ def ejecutar_app():
     aplicar_estilos()
     mostrar_pantalla_inicio()
 
-
-# ============================================================
 # 7. EJECUCIÓN
-# ============================================================
 
 ejecutar_app()
