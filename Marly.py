@@ -1,15 +1,16 @@
 import streamlit as st
 
-# 1. CONSTANTES DE LA APLICACIÓN
+# =========================
+# CONSTANTES
+# =========================
 
 TITULO_PAGINA = "LifeQuest"
 ICONO_PAGINA = "🦉"
 LAYOUT_PAGINA = "wide"
 
-NOMBRE_APP = "LifeQuest"
 SUBTITULO_APP = "Tu juego de hábitos saludables"
-FRASE_MOTIVACIONAL = " ¡Pequeños pasos, grandes cambios! "
-TEXTO_BOTON_INICIO = " INICIAR SESIÓN"
+FRASE_MOTIVACIONAL = "¡Pequeños pasos, grandes cambios!"
+TEXTO_BOTON = "INICIAR SESIÓN"
 
 IMAGEN_PORTADA = (
     "https://raw.githubusercontent.com/"
@@ -19,13 +20,11 @@ IMAGEN_PORTADA = (
 )
 
 
-# 2. CONFIGURACIÓN DE LA PÁGINA
+# =========================
+# CONFIGURACIÓN
+# =========================
 
 def configurar_pagina():
-    """
-    Configura la pestaña del navegador y el diseño general.
-    """
-
     st.set_page_config(
         page_title=TITULO_PAGINA,
         page_icon=ICONO_PAGINA,
@@ -33,36 +32,16 @@ def configurar_pagina():
     )
 
 
-# 3. ESTILOS VISUALES
-
+# =========================
+# ESTILOS
+# =========================
 
 def aplicar_estilos():
-    """
-    Aplica estilos básicos a la aplicación.
-    Aquí no se construye contenido, solo se modifica la apariencia.
-    """
-
     st.markdown(
         """
         <style>
         .stApp {
-            background: linear-gradient(135deg, #fbfff7 0%, #f1fbff 45%, #fff8ef 100%);
-        }
-
-        header {
-            visibility: hidden;
-        }
-
-        .block-container {
-            padding-top: 2rem;
-            max-width: 1250px;
-        }
-
-        div[data-testid="stVerticalBlockBorderWrapper"] {
-            background: white;
-            border-radius: 36px;
-            box-shadow: 0 18px 45px rgba(91, 141, 239, 0.14);
-            border: 1px solid #e8f5e9;
+            background: linear-gradient(135deg, #fbfff7, #f1fbff, #fff8ef);
         }
 
         div[data-testid="stButton"] {
@@ -71,46 +50,27 @@ def aplicar_estilos():
         }
 
         div[data-testid="stButton"] > button {
-            width: 270px;
-            height: 62px;
-            border-radius: 999px;
-            border: none;
-            background: white;
-            color: #172554;
-            font-size: 1.05rem;
-            font-weight: 800;
-            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.10);
-        }
-
-        div[data-testid="stButton"] > button:hover {
-            background: #f0fdf4;
-            color: #16a34a;
-            transform: translateY(-2px);
+            width: 260px;
+            height: 60px;
+            border-radius: 30px;
+            font-weight: bold;
         }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-# 4. COMPONENTES VISUALES
+
+# =========================
+# COMPONENTES
+# =========================
 
 def mostrar_tarjeta_inicio():
-    """
-    Muestra la tarjeta principal con el logo, título y subtítulo.
-    Esta versión usa componentes normales de Streamlit para evitar errores con HTML.
-    """
-
     with st.container(border=True):
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        st.markdown(
-            "<h1 style='text-align:center; font-size:60px;'>🏁</h1>",
-            unsafe_allow_html=True
-        )
-
         st.markdown(
             """
-            <h1 style='text-align:center; font-size:58px; font-weight:900;'>
+            <h1 style='text-align:center; font-size:60px;'>🏁</h1>
+            <h1 style='text-align:center; font-size:58px;'>
                 <span style='color:#22c55e;'>Life</span><span style='color:#38bdf8;'>Quest</span>
             </h1>
             """,
@@ -118,11 +78,7 @@ def mostrar_tarjeta_inicio():
         )
 
         st.markdown(
-            f"""
-            <h3 style='text-align:center; color:#16a34a;'>
-                {SUBTITULO_APP}
-            </h3>
-            """,
+            f"<h3 style='text-align:center; color:#16a34a;'>{SUBTITULO_APP}</h3>",
             unsafe_allow_html=True
         )
 
@@ -131,77 +87,46 @@ def mostrar_tarjeta_inicio():
             unsafe_allow_html=True
         )
 
-        st.markdown("<br><br>", unsafe_allow_html=True)
+
+def mostrar_boton():
+    st.button(TEXTO_BOTON)
 
 
-def mostrar_boton_inicio():
-    """
-    Muestra el botón de iniciar sesión.
-    Por ahora no tiene función, solo es visual.
-    """
-
-    st.write("")
-    st.button(TEXTO_BOTON_INICIO)
-
-
-def mostrar_frase_motivacional():
-    """
-    Muestra la frase motivacional inferior.
-    """
-
+def mostrar_frase():
     st.markdown(
-        f"""
-        <h4 style='text-align:center; color:#16a34a; font-weight:900;'>
-            {FRASE_MOTIVACIONAL}
-        </h4>
-        """,
+        f"<h4 style='text-align:center; color:#16a34a;'>{FRASE_MOTIVACIONAL}</h4>",
         unsafe_allow_html=True
     )
 
 
-def mostrar_imagen_portada():
-    """
-    Muestra la imagen del búho en la columna derecha.
-    """
-
-    st.image(
-        IMAGEN_PORTADA,
-        use_container_width=True
-    )
+def mostrar_imagen():
+    st.image(IMAGEN_PORTADA, use_container_width=True)
 
 
-# 5. PANTALLA PRINCIPAL
+# =========================
+# PANTALLA PRINCIPAL
+# =========================
 
-def mostrar_pantalla_inicio():
-    """
-    Construye la pantalla inicial usando dos columnas:
-    izquierda para el menú y derecha para la imagen.
-    """
-
-    col_izquierda, col_derecha = st.columns(
-        [1, 1.15],
-        vertical_alignment="center"
-    )
+def mostrar_inicio():
+    col_izquierda, col_derecha = st.columns([1, 1.15])
 
     with col_izquierda:
         mostrar_tarjeta_inicio()
-        mostrar_boton_inicio()
-        mostrar_frase_motivacional()
+        mostrar_boton()
+        mostrar_frase()
 
     with col_derecha:
-        mostrar_imagen_portada()
+        mostrar_imagen()
 
-# 6. FUNCIÓN PRINCIPAL
+
+# =========================
+# EJECUCIÓN
+# =========================
 
 def ejecutar_app():
-    """
-    Ejecuta la aplicación completa.
-    """
-
     configurar_pagina()
     aplicar_estilos()
-    mostrar_pantalla_inicio()
+    mostrar_inicio()
 
-# 7. EJECUCIÓN
 
 ejecutar_app()
