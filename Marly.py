@@ -53,26 +53,21 @@ def crear_tabla_usuarios_vacia():
 
 def normalizar_tabla_usuarios(df):
     """
-    Esta función evita el KeyError.
-    Si el archivo CSV fue creado con columnas antiguas,
-    lo adapta al formato nuevo.
+    Corrige el archivo usuarios_lifequest.csv si viene de una versión anterior.
     """
 
     if df.empty:
         return crear_tabla_usuarios_vacia()
 
-    # Si antes usabas nombre_completo, lo convertimos a nombre
     if "nombre" not in df.columns and "nombre_completo" in df.columns:
         df["nombre"] = df["nombre_completo"]
 
-    # Si no existe personaje, creamos personaje por defecto
     if "personaje" not in df.columns:
         if "avatar_nombre" in df.columns:
             df["personaje"] = df["avatar_nombre"]
         else:
             df["personaje"] = "Búho aventurero"
 
-    # Crear columnas faltantes
     if "nivel" not in df.columns:
         df["nivel"] = 1
 
@@ -85,17 +80,14 @@ def normalizar_tabla_usuarios(df):
         else:
             df["racha"] = 0
 
-    # Dejar solo las columnas necesarias
     df = df[COLUMNAS_USUARIOS]
 
-    # Limpiar datos nulos
     df["nombre"] = df["nombre"].fillna("").astype(str)
     df["personaje"] = df["personaje"].fillna("Búho aventurero").astype(str)
     df["nivel"] = pd.to_numeric(df["nivel"], errors="coerce").fillna(1).astype(int)
     df["xp_total"] = pd.to_numeric(df["xp_total"], errors="coerce").fillna(0).astype(int)
     df["racha"] = pd.to_numeric(df["racha"], errors="coerce").fillna(0).astype(int)
 
-    # Eliminar filas sin nombre
     df = df[df["nombre"].str.strip() != ""]
 
     return df
@@ -194,7 +186,7 @@ st.markdown(
         box-shadow: 0 18px 45px rgba(91, 141, 239, 0.14);
         border: 1px solid #e8f5e9;
         text-align: center;
-        min-height: 580px;
+        min-height: 520px;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -240,7 +232,7 @@ st.markdown(
     .soft-divider {
         color: #86efac;
         font-size: 1.4rem;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.8rem;
     }
 
     .cute-note {
@@ -265,31 +257,66 @@ st.markdown(
         filter: drop-shadow(0 18px 35px rgba(15, 23, 42, 0.12));
     }
 
-    div[data-testid="stButton"] {
+    /* ============================================
+       BOTONES DEL MENÚ PRINCIPAL
+       ============================================ */
+
+    .menu-button-wrapper {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1.2rem;
+    }
+
+    .menu-button-wrapper div[data-testid="stButton"] {
+        width: 100%;
         display: flex;
         justify-content: center;
     }
 
+    .menu-button-wrapper div[data-testid="stButton"] > button {
+        width: 360px !important;
+        height: 72px !important;
+        border-radius: 999px !important;
+        border: none !important;
+        font-size: 1.25rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.4px !important;
+        white-space: nowrap !important;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12) !important;
+        transition: all 0.2s ease !important;
+    }
+
+    .menu-button-wrapper div[data-testid="stButton"] > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 16px 30px rgba(15, 23, 42, 0.16) !important;
+    }
+
+    /* Botón iniciar sesión */
+    .login-btn div[data-testid="stButton"] > button {
+        background: linear-gradient(135deg, #86efac, #22c55e) !important;
+        color: white !important;
+    }
+
+    /* Botón registrarse */
+    .register-btn div[data-testid="stButton"] > button {
+        background: linear-gradient(135deg, #fde68a, #fbbf24) !important;
+        color: white !important;
+    }
+
+    /* Botones generales de otras pantallas */
     div[data-testid="stButton"] > button {
         border-radius: 999px;
         border: none;
-        min-height: 66px;
-        font-size: 1.15rem;
-        font-weight: 900;
-        letter-spacing: 0.5px;
-        width: 72%;
-        max-width: 430px;
-        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.10);
+        min-height: 58px;
+        font-size: 1rem;
+        font-weight: 800;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.10);
         transition: all 0.2s ease;
-        background: white;
-        color: #172554;
     }
 
     div[data-testid="stButton"] > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 14px 26px rgba(15, 23, 42, 0.13);
-        background: #f0fdf4;
-        color: #16a34a;
     }
 
     .register-card {
@@ -359,8 +386,9 @@ st.markdown(
             font-size: 1.05rem;
         }
 
-        div[data-testid="stButton"] > button {
-            width: 95%;
+        .menu-button-wrapper div[data-testid="stButton"] > button {
+            width: 95% !important;
+            font-size: 1rem !important;
         }
     }
     </style>
@@ -388,25 +416,31 @@ def pantalla_menu():
                     Tu juego de hábitos saludables 💗
                 </div>
                 <div class="soft-divider">— 🌱 —</div>
+            </div>
             """,
             unsafe_allow_html=True
         )
+
+        st.markdown('<div class="menu-button-wrapper login-btn">', unsafe_allow_html=True)
 
         if st.button("👤 INICIAR SESIÓN", key="btn_ir_login"):
             st.session_state.pantalla = "login"
             st.rerun()
 
-        st.markdown('<div style="height: 1.1rem;"></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="menu-button-wrapper register-btn">', unsafe_allow_html=True)
 
         if st.button("😊 REGISTRARSE", key="btn_ir_registro"):
             st.session_state.pantalla = "registro"
             st.rerun()
 
+        st.markdown('</div>', unsafe_allow_html=True)
+
         st.markdown(
             """
-                <div class="cute-note">
-                    ✨ ¡Pequeños pasos, grandes cambios! ✨
-                </div>
+            <div class="cute-note">
+                ✨ ¡Pequeños pasos, grandes cambios! ✨
             </div>
             """,
             unsafe_allow_html=True
@@ -438,6 +472,7 @@ def pantalla_registro():
                 <div class="register-subtitle">
                     Escribe tu nombre y elige tu compañero de aventura.
                 </div>
+            </div>
             """,
             unsafe_allow_html=True
         )
@@ -472,8 +507,6 @@ def pantalla_registro():
         if st.button("⬅️ Volver al menú", key="btn_volver_menu_registro"):
             st.session_state.pantalla = "menu"
             st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     with col_video:
         st.markdown(
@@ -516,6 +549,7 @@ def pantalla_login():
                 <div class="register-subtitle">
                     Selecciona tu usuario para continuar tu aventura.
                 </div>
+            </div>
             """,
             unsafe_allow_html=True
         )
@@ -539,8 +573,6 @@ def pantalla_login():
         if st.button("⬅️ Volver", key="btn_volver_menu_login"):
             st.session_state.pantalla = "menu"
             st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ============================================================
